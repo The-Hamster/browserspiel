@@ -624,6 +624,7 @@ function poly2(g, n, r, rot) { g.beginPath(); for (let i = 0; i < n; i++) { cons
 
 // Hindernisse aufrecht: Fels, Kristall, Pflanze
 export function obstacleSprite(o, B, res) {
+  if (o.kind === 'mountain') return mountainSprite(o, B, res);
   const key = 'ob|' + Math.round(o.x) + '|' + Math.round(o.y) + '|' + o.kind + '|' + B.name + '|' + res;
   let s = spriteCache.get(key);
   if (s) return s;
@@ -682,6 +683,85 @@ export function obstacleSprite(o, B, res) {
     for (let i = 0; i < 6; i++) { g.fillStyle = rgba(B.plant2, 0.85); g.beginPath(); g.arc((rng() - 0.5) * r * 1.2, -r * 1.05 + (rng() - 0.5) * r * 0.8, 1.2 + rng() * 1.2, 0, 7); g.fill(); }
   }
   s = { c, w, h, ax, ay };
+  spriteCache.set(key, s);
+  return s;
+}
+
+// Berg der Grenze: runde, weiche Silhouette, Licht von links, je Landschaft Schnee, Glut, Kristalladern oder Moos
+export function mountainSprite(o, B, res0) {
+  const res = Math.min(res0, 1.5);
+  const size = o.r < 46 ? 0 : o.r < 62 ? 1 : 2, v = o.variant || 0;
+  const key = 'mt|' + v + '|' + size + '|' + B.name + '|' + res;
+  let s = spriteCache.get(key);
+  if (s) return s;
+  const r = [40, 54, 70][size], h = r * (0.78 + (v % 3) * 0.16);
+  const w = r * 2.6 + 30, hh = h + r * TILT * 0.7 + 30, ax = w / 2, ay = h + 18;
+  const c = mk(w * res, hh * res), g = c.getContext('2d');
+  g.scale(res, res); g.translate(ax, ay);
+  let seed = (v * 7919 + size * 104729 + 13) >>> 0;
+  const rnd = () => { seed = (seed * 1664525 + 1013904223) >>> 0; return seed / 4294967296; };
+  // Schatten am Boden
+  g.fillStyle = 'rgba(0,0,0,0.4)'; g.beginPath(); g.ellipse(r * 0.25, r * TILT * 0.1, r * 1.25, r * TILT * 0.75, 0, 0, 7); g.fill();
+  const px = (rnd() - 0.5) * r * 0.4;
+  // gewölbte Flanken; Varianten 3–5 mit zweitem, niedrigerem Gipfel
+  const two = v >= 3, j = () => 0.94 + rnd() * 0.1;
+  const top = two ? [
+    [-r, 0], [-r * 0.95, -h * 0.32 * j()], [-r * 0.72, -h * 0.62 * j()], [-r * 0.4, -h * 0.66 * j()], [-r * 0.18, -h * 0.82], [px + r * 0.1, -h],
+    [r * 0.42, -h * 0.86 * j()], [r * 0.78, -h * 0.5 * j()], [r * 0.97, -h * 0.18], [r, 0],
+  ] : [
+    [-r, 0], [-r * 0.94, -h * 0.34 * j()], [-r * 0.66, -h * 0.74 * j()], [-r * 0.26, -h * 0.97], [px, -h],
+    [r * 0.3, -h * 0.94 * j()], [r * 0.68, -h * 0.7 * j()], [r * 0.95, -h * 0.3 * j()], [r, 0],
+  ];
+  const sil = () => {
+    g.beginPath(); g.moveTo(top[0][0], top[0][1]);
+    for (let i = 1; i < top.length - 1; i++) { const a = top[i], b = top[i + 1]; g.quadraticCurveTo(a[0], a[1], (a[0] + b[0]) / 2, (a[1] + b[1]) / 2); }
+    g.lineTo(top[top.length - 1][0], top[top.length - 1][1]);
+    g.ellipse(0, 0, r, r * TILT * 0.55, 0, 0, Math.PI);
+    g.closePath();
+  };
+  const gr = g.createLinearGradient(-r, -h, r, 0);
+  gr.addColorStop(0, mix(B.rock, '#ffffff', 0.28)); gr.addColorStop(0.45, mix(B.rock, '#000000', 0.05)); gr.addColorStop(1, mix(B.rock, '#000000', 0.55));
+  sil(); g.fillStyle = gr; g.fill();
+  g.save(); sil(); g.clip();
+  // Schattenseite rechts vom Grat
+  g.fillStyle = 'rgba(0,0,0,0.22)';
+  g.beginPath(); g.moveTo(px, -h); g.quadraticCurveTo(px + r * 0.15, -h * 0.4, r * 0.12, r * TILT * 0.6); g.lineTo(r * 1.2, r); g.lineTo(r * 1.2, -h - 5); g.closePath(); g.fill();
+  // Rinnen
+  g.strokeStyle = 'rgba(0,0,0,0.25)'; g.lineWidth = 1.6; g.lineCap = 'round';
+  for (let i = 0; i < 4; i++) {
+    const sx = px + (rnd() - 0.5) * r * 0.6, sy = -h * (0.55 + rnd() * 0.35), ex = sx + (rnd() - 0.5) * r * 0.7, ey = -h * rnd() * 0.15;
+    g.beginPath(); g.moveTo(sx, sy); g.quadraticCurveTo((sx + ex) / 2 + (rnd() - 0.5) * 10, (sy + ey) / 2, ex, ey); g.stroke();
+  }
+  // Landschaftsdetails
+  const nm = B.name || '';
+  if (nm.includes('Frost')) {
+    g.fillStyle = 'rgba(236,248,255,0.9)';
+    g.beginPath(); g.moveTo(-r, -h * 0.58);
+    for (let i = 0; i <= 8; i++) { const x = -r + i / 8 * 2 * r; g.lineTo(x, -h * (0.58 + (i % 2 ? 0.08 : -0.04) + rnd() * 0.06)); }
+    g.lineTo(r, -h - 10); g.lineTo(-r, -h - 10); g.closePath(); g.fill();
+    g.fillStyle = 'rgba(120,160,200,0.35)'; g.beginPath(); g.moveTo(px, -h); g.quadraticCurveTo(px + r * 0.2, -h * 0.75, r * 0.5, -h * 0.55); g.lineTo(r, -h); g.closePath(); g.fill();
+  } else if (B.waterGlow && !nm.includes('Kristall')) {
+    g.globalCompositeOperation = 'lighter'; g.strokeStyle = rgba(B.water, 0.55); g.lineWidth = 1.4; g.shadowColor = B.water; g.shadowBlur = 6;
+    for (let i = 0; i < 2; i++) { const sx = (rnd() - 0.5) * r * 0.9, sy = -h * (0.05 + rnd() * 0.3); g.beginPath(); g.moveTo(sx, sy); g.quadraticCurveTo(sx + (rnd() - 0.5) * 14, sy - 10, sx + (rnd() - 0.5) * 12, sy - 18 - rnd() * 10); g.stroke(); }
+    g.shadowBlur = 0; g.globalCompositeOperation = 'source-over';
+  } else if (nm.includes('Kristall')) {
+    for (let i = 0; i < 3; i++) {
+      const x = (rnd() - 0.5) * r * 1.1, y = -h * (0.1 + rnd() * 0.45), l = 10 + rnd() * 14;
+      const cg = g.createLinearGradient(x - 4, 0, x + 4, 0); cg.addColorStop(0, mix(B.crystal, '#ffffff', 0.5)); cg.addColorStop(1, mix(B.crystal, '#000000', 0.3));
+      g.fillStyle = cg; g.beginPath(); g.moveTo(x - 4, y); g.lineTo(x, y - l); g.lineTo(x + 4, y); g.closePath(); g.fill();
+    }
+  } else {
+    // Moos und Ranken
+    for (let i = 0; i < 9; i++) {
+      const x = (rnd() - 0.5) * r * 1.6, y = -h * rnd() * 0.45, rr = 4 + rnd() * 9;
+      g.fillStyle = rgba(rnd() < 0.5 ? B.plant : B.plant2, 0.45); g.beginPath(); g.ellipse(x, y, rr, rr * 0.6, 0, 0, 7); g.fill();
+    }
+  }
+  g.restore();
+  g.strokeStyle = 'rgba(0,0,0,0.35)'; g.lineWidth = 1; sil(); g.stroke();
+  g.strokeStyle = 'rgba(255,255,255,0.16)'; g.lineWidth = 1.5;
+  g.beginPath(); g.moveTo(top[2][0], top[2][1] + 3); g.quadraticCurveTo((top[2][0] + px) / 2, -h + 2, px, -h + 2); g.stroke();
+  s = { c, w, h: hh, ax, ay };
   spriteCache.set(key, s);
   return s;
 }

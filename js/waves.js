@@ -11,14 +11,16 @@ export const DIFFICULTIES = {
 export const DIFF_ORDER = ['leicht', 'mittel', 'schwer', 'experte'];
 
 export function makeRules(mode, opts = {}) {
-  const d = DIFFICULTIES[mode === 'daily' ? 'mittel' : (opts.difficulty || 'mittel')] || DIFFICULTIES.mittel;
+  const d = DIFFICULTIES[(mode === 'daily' || opts.fixedMittel) ? 'mittel' : (opts.difficulty || 'mittel')] || DIFFICULTIES.mittel;
   const r = {
-    mode, difficulty: mode === 'daily' ? 'mittel' : (opts.difficulty || 'mittel'),
+    mode, difficulty: (mode === 'daily' || opts.fixedMittel) ? 'mittel' : (opts.difficulty || 'mittel'),
     hpMul: d.hpMul, speedMul: d.speedMul, startCredits: d.startCredits, baseHp: d.baseHp, bossMul: d.bossMul, manual: d.manual, scoreMul: d.scoreMul,
     elite: false, eliteMul: 1, eliteRewardMul: 1,
     events: false, eventEvery: 0, hero: false, research: false, totalWaves: 30, countdown: d.countdown,
     rewardMul: 1, countMul: 1, armorAdd: 0, towerDmgMul: 1, banned: [], mods: [], tutorial: mode === 'standard',
   };
+  // Frontbau: Wellen starten nur auf Knopfdruck (zuerst Karte wählen)
+  if (mode === 'kachel') { r.manual = true; r.tutorial = false; r.hpMul *= 1.15; r.startCredits = Math.round(r.startCredits * 0.6); }
   // Advance (intern "expert") und Tägliche Herausforderung: Elite, Kommandant, Ereignisse
   if (mode === 'expert' || mode === 'daily') {
     Object.assign(r, { hpMul: r.hpMul * 1.1, speedMul: r.speedMul * 1.04, elite: true, events: true, hero: true, countdown: Math.max(14, r.countdown - 3), rewardMul: 0.95 });
@@ -38,7 +40,7 @@ export function makeRules(mode, opts = {}) {
       if (id === 'elite') { r.eliteMul = 2; r.eliteRewardMul = 1.3; }
     }
   }
-  r.repair = mode !== 'standard';
+  r.repair = mode !== 'standard' && mode !== 'kachel';
   if (opts.mission) {
     const m = opts.mission;
     r.mission = m.id; r.totalWaves = m.waves; r.research = false; r.tutorial = m.id === 'm1';

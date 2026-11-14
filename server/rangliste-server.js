@@ -4,7 +4,7 @@
 // Optional: PORT=8080  DATEN=./server/daten/rangliste.json  STATISCH=1 (liefert auch das Spiel aus)
 //
 // Schnittstelle:
-//   GET  /api/rangliste/scores?board=gesamt|daily-JJJJ-MM-TT|karte-<id>&limit=50
+//   GET  /api/rangliste/scores?board=gesamt|daily-JJJJ-MM-TT|kdaily-JJJJ-MM-TT|modus-<modus>|karte-<id>&limit=50
 //   POST /api/rangliste/scores   { name, score, wave, won, mode, difficulty, map, mapName, daily, mission, version }
 const http = require('http');
 const fs = require('fs');
@@ -29,7 +29,7 @@ function persist() {
   }, 500);
 }
 
-const MODES = new Set(['standard', 'expert', 'daily', 'kampagne']);
+const MODES = new Set(['standard', 'expert', 'daily', 'kampagne', 'kachel']);
 const DIFFS = new Set(['leicht', 'mittel', 'schwer', 'experte']);
 const clean = (s, n) => String(s || '').replace(/[<>"'`\\\u0000-\u001f]/g, '').trim().slice(0, n);
 
@@ -44,7 +44,7 @@ function validate(b) {
   if (b.difficulty && !DIFFS.has(b.difficulty)) return 'Schwierigkeit ungültig';
   return {
     name, score, wave, won: !!b.won, mode: b.mode, difficulty: b.difficulty || 'mittel',
-    map: clean(b.map, 40), mapName: clean(b.mapName, 40), daily: b.daily ? clean(b.daily, 10) : null,
+    map: clean(b.map, 40), mapName: clean(b.mapName, 40), daily: b.daily ? clean(b.daily, 10) : null, kdaily: b.kdaily ? clean(b.kdaily, 10) : null,
     mission: b.mission ? clean(b.mission, 10) : null, endless: !!b.endless, version: clean(b.version, 12), ts: Date.now(),
   };
 }
@@ -52,6 +52,8 @@ function validate(b) {
 function board(name, limit) {
   let list = scores;
   if (name.startsWith('daily-')) list = list.filter(e => e.daily === name.slice(6));
+  else if (name.startsWith('kdaily-')) list = list.filter(e => e.kdaily === name.slice(7));
+  else if (name.startsWith('modus-')) list = list.filter(e => e.mode === name.slice(6));
   else if (name.startsWith('karte-')) list = list.filter(e => e.map === name.slice(6) && !e.daily && !e.mission);
   // pro Name nur das beste Ergebnis
   const best = new Map();
@@ -95,7 +97,7 @@ http.createServer((req, res) => {
         scores.push(e);
         if (scores.length > MAX_ENTRIES) scores = scores.sort((a, b) => b.score - a.score).slice(0, MAX_ENTRIES);
         persist();
-        const list = board(e.daily ? 'daily-' + e.daily : 'gesamt', 100000);
+        const list = board(e.daily ? 'daily-' + e.daily : e.kdaily ? 'kdaily-' + e.kdaily : 'gesamt', 100000);
         const rank = list.findIndex(x => x.name.toLowerCase() === e.name.toLowerCase()) + 1;
         send(res, 200, { ok: true, rank });
       });

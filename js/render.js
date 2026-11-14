@@ -1,8 +1,8 @@
 // Zeichnen: Sternenhimmel, Karte, Einheiten, Effekte
-import { TILE, COLS, ROWS, WORLD_W, WORLD_H, TOWERS, ENEMIES, BASE, TILT, TOWER_LOOK } from './data.js';
+import { TILE, COLS, ROWS, WORLD_W, WORLD_H, TOWERS, ENEMIES, BASE, TILT, TOWER_LOOK, SCENERY, VIEW_COLS, VIEW_ROWS } from './data.js';
 import { glow, smoke, enemySprite, towerHeadSprite, towerBodySprite, towerDims, headScale, obstacleSprite, mk, clearSpriteCache, PAL, ci, roundRect, tierColor } from './sprites.js';
 import { P_GLOW, P_SPARK, P_SMOKE, P_DEBRIS, P_HEAT } from './particles.js';
-import { drawTerrain } from './terrain.js';
+import { drawTerrain, drawScenery } from './terrain.js';
 import { rgba, mix, mulberry32, hashString, clamp } from './util.js';
 
 const ROTATING = { laser: 1, plasma: 1, rail: 1, rocket: 1 };
@@ -42,12 +42,16 @@ export class Renderer {
     const r = this.playRect;
     // Spiel: Karte füllt den ganzen Bildschirm (Rest per Ziehen erreichbar); Editor: ganze Karte sichtbar
     this.HEAD = this.fit === 'contain' ? 30 : 0;
+    // Spiel: Standard-Ansicht zeigt etwa 20 × 14 Felder und füllt den Bildschirm; weiter herauszoomen bis zur ganzen Karte samt Kulisse
+    const VW = VIEW_COLS * TILE, VH = VIEW_ROWS * TILE;
     this.scale0 = this.fit === 'contain'
       ? Math.min(r.w / WORLD_W, r.h / (WORLD_H * TILT + this.HEAD))
-      : Math.max(r.w / WORLD_W, r.h / (WORLD_H * TILT));
+      : Math.max(r.w / VW, r.h / (VH * TILT));
+    this.zoomMin = this.fit === 'contain' ? 1 : Math.max(r.w / (WORLD_W + 2 * SCENERY), r.h / ((WORLD_H + 2 * SCENERY) * TILT)) / this.scale0;
     this.applyView();
     const cap = this.quality === 'niedrig' ? 1.5 : this.quality === 'mittel' ? 2 : 3;
     const res = Math.min(cap, Math.max(1, Math.ceil(this.scale0 * dpr * 2) / 2));
+    this.sceneryLayer = null;
     if (res !== this.res) { this.res = res; clearSpriteCache(); }
     this.buildStars();
     this.mapKey = null;
@@ -66,20 +70,24 @@ export class Renderer {
   // Ansicht: Zoom und Mittelpunkt (Welt) -> Maßstab und Versatz (CSS-Pixel)
   applyView() {
     const r = this.playRect; if (!r || !this.scale0) return;
-    this.zoom = clamp(this.zoom, 1, 2.6);
+    this.zoom = clamp(this.zoom, this.zoomMin || 1, 2.6);
     this.scale = this.scale0 * this.zoom;
     const vw = r.w / this.scale, vh = (r.h - this.HEAD * this.scale0) / (this.scale * TILT);
-    // Rand unter den Leisten: Karte lässt sich so weit ziehen, dass nichts verdeckt bleibt
-    const P = this.fit === 'contain' ? { t: 0, b: 0, l: 0, r: 0 } : (this.pad || { t: 0, b: 0, l: 0, r: 0 });
-    const pl = P.l / this.scale, pr = P.r / this.scale, pt = P.t / (this.scale * TILT), pb = P.b / (this.scale * TILT);
-    this.cx = vw >= WORLD_W + pl + pr ? WORLD_W / 2 + (pr - pl) / 2 : clamp(this.cx, vw / 2 - pl, WORLD_W - vw / 2 + pr);
-    this.cy = vh >= WORLD_H + pt + pb ? WORLD_H / 2 + (pb - pt) / 2 : clamp(this.cy, vh / 2 - pt, WORLD_H - vh / 2 + pb);
+    if (this.fit === 'contain') { this.cx = WORLD_W / 2; this.cy = WORLD_H / 2; }
+    else {
+      // Bildmitte darf bis an die Baukante, der Bildschirm bleibt dabei mit Kulisse gefüllt
+      const M = SCENERY;
+      const lx = Math.max(0, vw / 2 - M), hx = Math.min(WORLD_W, WORLD_W + M - vw / 2);
+      const ly = Math.max(0, vh / 2 - M), hy = Math.min(WORLD_H, WORLD_H + M - vh / 2);
+      this.cx = lx > hx ? WORLD_W / 2 : clamp(this.cx, lx, hx);
+      this.cy = ly > hy ? WORLD_H / 2 : clamp(this.cy, ly, hy);
+    }
     this.ox = r.x + r.w / 2 - this.cx * this.scale;
     this.oy = r.y + this.HEAD * this.scale0 + (r.h - this.HEAD * this.scale0) / 2 - this.cy * TILT * this.scale;
   }
   zoomAt(sx, sy, factor) {
     const w = this.screenToWorld(sx, sy);
-    this.zoom = clamp(this.zoom * factor, 1, 2.6);
+    this.zoom = clamp(this.zoom * factor, this.zoomMin || 1, 2.6);
     this.scale = this.scale0 * this.zoom;
     // Punkt unter dem Zeiger festhalten
     const r = this.playRect;
@@ -89,7 +97,7 @@ export class Renderer {
   }
   canPan() { return this.fit !== 'contain'; }
   panBy(dx, dy) { this.cx -= dx / this.scale; this.cy -= dy / (this.scale * TILT); this.applyView(); }
-  resetView() { this.zoom = 1; this.cx = WORLD_W / 2; this.cy = WORLD_H / 2; this.applyView(); }
+  resetView(cx = WORLD_W / 2, cy = WORLD_H / 2) { this.zoom = 1; this.cx = cx; this.cy = cy; this.applyView(); }
   screenToWorld(x, y) { return { x: (x - this.ox) / this.scale, y: (y - this.oy) / (this.scale * TILT) }; }
   worldToScreen(x, y, z = 0) { return { x: this.ox + x * this.scale, y: this.oy + y * TILT * this.scale - z * this.scale }; }
 
@@ -192,15 +200,26 @@ export class Renderer {
   // ---------------------------------------------------------------- Karten-Ebene
   buildMapLayer(map, exact = false, upright = true) {
     const coarse = window.matchMedia && matchMedia('(pointer: coarse)').matches;
-    const res = exact ? Math.min(coarse ? 2.5 : 3.5, this.scale * this.dpr) : this.res;
+    const res = exact ? Math.min(coarse ? 1.6 : 2.4, this.scale * this.dpr) : Math.min(this.res, 1.5);
     const c = mk(WORLD_W * res, WORLD_H * TILT * res), g = c.getContext('2d');
     g.scale(res, res * TILT);
-    drawTerrain(g, map, { upright });
+    drawTerrain(g, map, { upright, feather: exact });
+    c.res = res;
+    return c;
+  }
+  buildScenery(map) {
+    const M = SCENERY, res = Math.min(1, this.scale0 * this.dpr * 0.7);
+    const c = mk((WORLD_W + 2 * M) * res, (WORLD_H + 2 * M) * TILT * res), g = c.getContext('2d');
+    g.setTransform(res, 0, 0, res * TILT, M * res, M * TILT * res);
+    drawScenery(g, map, M, res, (o) => obstacleSprite(o, map.biome, res));
     c.res = res;
     return c;
   }
   ensureMap(map) {
-    const want = Math.min(3.5, this.scale * this.dpr);
+    const sk = map.def && map.def.kachel ? 'kachel|' + map.def.biome : map;
+    if (!this.sceneryLayer || this.sceneryRef !== sk) { this.sceneryLayer = this.buildScenery(map); this.sceneryRef = sk; }
+    const coarse = window.matchMedia && matchMedia('(pointer: coarse)').matches;
+    const want = Math.min(coarse ? 1.6 : 2.4, this.scale * this.dpr);
     const key = map.id + '|' + want.toFixed(3);
     if (this.mapKey === key && this.mapRef === map) return;
     // beim Zoomen erst nach kurzer Ruhe neu zeichnen
@@ -262,7 +281,9 @@ export class Renderer {
     g.globalAlpha = 1; g.globalCompositeOperation = 'source-over';
     g.setTransform(1, 0, 0, 1, 0, 0);
     if (game.decals.length) this.bakeDecals(game);
-    const L = this.mapLayer, want = this.scale * this.dpr;
+    const want = this.scale * this.dpr, S = this.sceneryLayer;
+    g.drawImage(S, this.wt.tx - SCENERY * want, this.wt.ty - SCENERY * TILT * want, (WORLD_W + 2 * SCENERY) * want, (WORLD_H + 2 * SCENERY) * TILT * want);
+    const L = this.mapLayer;
     if (Math.abs(L.res - want) < 0.01) g.drawImage(L, Math.round(this.wt.tx), Math.round(this.wt.ty));
     else g.drawImage(L, this.wt.tx, this.wt.ty, WORLD_W * want, WORLD_H * TILT * want);
     this.resetWT();
@@ -283,6 +304,8 @@ export class Renderer {
       g.beginPath(); w.pts.forEach((q, i) => i ? g.lineTo(q.x, q.y) : g.moveTo(q.x, q.y)); g.stroke();
     }
     g.setLineDash([]);
+    this.drawWavePreview(game);
+    if (ui.kPreview && game.kachel) this.drawKachelPreview(game, ui.kPreview);
     // Portale
     const seen = new Set();
     for (const p of game.map.paths) {
@@ -343,6 +366,63 @@ export class Renderer {
       g.globalAlpha = 1;
       this.flash -= dt;
     }
+  }
+
+  // Weg-Vorschau: Pfeile auf den Wegen der nächsten Welle
+  drawWavePreview(game) {
+    const wd = game.nextWaveDef;
+    if (!wd || game.state !== 'playing') return;
+    const waiting = game.wave === 0 || game.countdownPaused || game.countdown !== null;
+    if (!waiting) return;
+    if (!wd._used) {
+      const ground = new Set(), air = new Set();
+      for (const sp of wd.spawns) (ENEMIES[sp.type].air ? air : ground).add(sp.path % game.map.paths.length);
+      wd._used = { ground: [...ground], air: [...air] };
+    }
+    const g = this.ctx, t = this.time;
+    const pulse = 0.55 + 0.45 * Math.sin(t * 4);
+    const along = (path, d, out) => {
+      const cum = path.cum; let lo = 0, hi = path.segs.length - 1;
+      while (lo < hi) { const m = (lo + hi + 1) >> 1; if (cum[m] <= d) lo = m; else hi = m - 1; }
+      const sg = path.segs[lo], k = Math.min(d - cum[lo], sg.len);
+      out.x = path.pts[lo].x + sg.dx * k; out.y = path.pts[lo].y + sg.dy * k; out.a = sg.ang; return out;
+    };
+    const q = { x: 0, y: 0, a: 0 };
+    const draw = (path, col, z) => {
+      g.strokeStyle = rgba(col, 0.75 * pulse); g.lineWidth = 4; g.lineCap = 'round'; g.lineJoin = 'round';
+      const off = (t * 70) % 90;
+      for (let d = off; d < path.total - 60; d += 90) {
+        along(path, d, q);
+        const c = Math.cos(q.a), s2 = Math.sin(q.a), y = q.y - z / TILT;
+        g.beginPath(); g.moveTo(q.x - c * 8 - s2 * 9, y - s2 * 8 + c * 9); g.lineTo(q.x + c * 6, y + s2 * 6); g.lineTo(q.x - c * 8 + s2 * 9, y - s2 * 8 - c * 9); g.stroke();
+      }
+    };
+    g.globalCompositeOperation = 'lighter';
+    for (const i of wd._used.ground) draw(game.map.paths[i], wd.isBoss ? '#ff3d6e' : '#ffd23e', 0);
+    for (const i of wd._used.air) draw(game.map.flyPaths[i % game.map.flyPaths.length], '#7cc8ff', 20);
+    g.globalCompositeOperation = 'source-over';
+  }
+
+  // Frontbau: Vorschau des neuen Wegstücks
+  drawKachelPreview(game, pv) {
+    const g = this.ctx, t = this.time;
+    const cen = ([cx, cy]) => ({ x: (cx * 2 + 1) * TILE, y: (cy * 2 + 1) * TILE });
+    const cells = game.kstate.cells;
+    const pts = [cen(cells[cells.length - 1]), ...pv.cells.map(cen)];
+    const D = [[1, 0], [0, 1], [-1, 0], [0, -1]][pv.dir];
+    const last = pv.cells[pv.cells.length - 1];
+    pts.push(cen([last[0] + D[0], last[1] + D[1]]));
+    this.resetWT();
+    g.lineCap = 'round'; g.lineJoin = 'round';
+    g.strokeStyle = 'rgba(255,210,62,0.18)'; g.lineWidth = 58;
+    g.beginPath(); pts.forEach((q, i) => i ? g.lineTo(q.x, q.y) : g.moveTo(q.x, q.y)); g.stroke();
+    g.setLineDash([14, 12]); g.lineDashOffset = -t * 40;
+    g.strokeStyle = 'rgba(255,210,62,0.85)'; g.lineWidth = 3;
+    g.beginPath(); pts.forEach((q, i) => i ? g.lineTo(q.x, q.y) : g.moveTo(q.x, q.y)); g.stroke();
+    g.setLineDash([]);
+    const e = pts[pts.length - 1];
+    g.fillStyle = 'rgba(255,61,110,0.8)'; g.beginPath(); g.arc(e.x, e.y, 12 + Math.sin(t * 5) * 2, 0, 7); g.fill();
+    this.resetWT();
   }
 
   setQuality(q) { this.quality = q; this.mapKey = null; this.light = null; this.res = 0; clearSpriteCache(); this.prewarmed = false; if (this.playRect) this.resize(this.playRect); }
@@ -433,6 +513,12 @@ export class Renderer {
       for (const p of game.projectiles) if (p.kind === 'missile' || p.kind === 'shell') cut(p.x, p.y, 40, 0.6);
       for (const tw of game.towers) for (const bm of tw.beams) cut(bm.e.x, bm.e.y, 50, 0.7);
       g.drawImage(this.light, 0, 0, WORLD_W, WORLD_H);
+      // Dunkelheit reicht über den Kartenrand hinaus (keine Kante)
+      const M = SCENERY;
+      g.globalAlpha = mood.dark; g.fillStyle = mood.ambient;
+      g.fillRect(-M, -M, WORLD_W + 2 * M, M); g.fillRect(-M, WORLD_H, WORLD_W + 2 * M, M);
+      g.fillRect(-M, 0, M, WORLD_H); g.fillRect(WORLD_W, 0, M, WORLD_H);
+      g.globalAlpha = 1;
     }
     // farbige Lichtblitze (auch am Tag)
     g.globalCompositeOperation = 'lighter';
@@ -444,7 +530,7 @@ export class Renderer {
     g.globalCompositeOperation = 'source-over';
     g.globalAlpha = 1;
     // Farbstimmung
-    if (mood.tintA > 0 && mood.dark === 0 && q === 'hoch') { g.globalAlpha = mood.tintA; g.fillStyle = mood.tint; g.fillRect(0, 0, WORLD_W, WORLD_H); g.globalAlpha = 1; }
+    if (mood.tintA > 0 && mood.dark === 0 && q === 'hoch') { g.globalAlpha = mood.tintA; g.fillStyle = mood.tint; g.fillRect(-SCENERY, -SCENERY, WORLD_W + 2 * SCENERY, WORLD_H + 2 * SCENERY); g.globalAlpha = 1; }
   }
 
   drawSelection(game, ui) {
@@ -567,8 +653,10 @@ export class Renderer {
     list.length = 0;
     for (const tw of game.towers) list.push(tw);
     const map = game.map;
-    if (!map._big) map._big = [...map.obstacles, ...map.deco.filter(d => d.block)];
-    for (const o of map._big) list.push(o);
+    if (!map._big) map._big = [...map.obstacles, ...map.deco.filter(d => d.block), ...(map.mountains || [])];
+    // nur sichtbare Felsen und Berge
+    const v0 = this.screenToWorld(0, 0), v1 = this.screenToWorld(this.vw, this.vh);
+    for (const o of map._big) if (o.x > v0.x - 160 && o.x < v1.x + 160 && o.y > v0.y - 80 && o.y < v1.y + 260) list.push(o);
     list.push(game.base);
     list.sort((a, b) => a.y - b.y);
     const B = map.biome;

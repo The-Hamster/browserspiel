@@ -1,6 +1,6 @@
 # KERNWACHT
 
-**Version 1.0.5**
+**Version 1.0.6**
 
 **Ein Sci-Fi-Tower-Defense-Spiel, das direkt im Browser läuft.**
 
@@ -21,6 +21,19 @@ python3 -m http.server 8000
 Danach im Browser `http://localhost:8000` öffnen.
 
 Läuft am PC (Maus und Tastatur) und am Handy oder Tablet (Touch, im Querformat).
+
+## Neu in Version 1.0.6
+
+- **Frontbau** (neuer Modus): Vor jeder Welle ziehst du drei Karten und nimmst eine – ein Wegstück (der Weg der Gegner wird länger), einen Turm (kostenlos) oder eine Spezialkarte. Lege eine Turmkarte auf einen gleichen Turm, um ihn kostenlos aufzurüsten. Vor dem Start wählst du Landschaft und dein Kartendeck; weitere Karten schaltest du mit Erfolgen frei.
+- **Tägliches Frontbau:** jeden Tag dieselben Karten in derselben Reihenfolge für alle, mit eigener Rangliste.
+- Neuer Menüpunkt **Modi**: Advance, Frontbau, Tägliches Frontbau, Tägliche Herausforderung und Endlos an einer Stelle.
+- **Größere Karten** (30 × 24 Felder) mit natürlicher Grenze: Bergketten (mit Schnee, Glut, Kristallen oder Moos) und Schluchten (mit Lava, Gift- oder Kristallschein) statt gerader Linien. Dahinter geht die Landschaft weiter.
+- Die Mitte des Bildschirms kann bis an den Rand der Baufläche geschoben werden; weiter herauszoomen bis zur ganzen Karte.
+- **Schaden:** Wo es keine Reparatur gibt (Standard, Frontbau), bleiben Türme heil – Belagerer und Bosse schießen dann aus der Nähe auf den Kern.
+- Pfeile auf dem Weg zeigen, wo die nächste Welle entlangkommt.
+- **Schnellbau:** Taste C wählt den zuletzt gebauten Turm noch einmal.
+- Eigene Musikstimmung je Landschaft.
+- Drei neue Erfolge (jetzt 23).
 
 ## Neu in Version 1.0.5
 
@@ -77,7 +90,7 @@ Läuft am PC (Maus und Tastatur) und am Handy oder Tablet (Touch, im Querformat)
 
 ### Gegner
 
-Schwärmer (viele, schwach) · Belagerer (gepanzert, beschießt Türme) · Schildträger · Phantom (getarnt) · Gleiter (fliegt direkt zum Kern) · Teiler (zerfällt in kleine Teile) · Schwarmträger (Boss alle 10 Wellen).
+Schwärmer (viele, schwach) · Belagerer (gepanzert, beschießt den Kern – im Advance-Modus auch Türme) · Schildträger · Phantom (getarnt) · Gleiter (fliegt direkt zum Kern) · Teiler (zerfällt in kleine Teile) · Schwarmträger (Boss alle 10 Wellen).
 
 ## Steuerung am PC
 
@@ -97,6 +110,7 @@ Schwärmer (viele, schwach) · Belagerer (gepanzert, beschießt Türme) · Schil
 | Y / X | Fähigkeiten des Kommandanten |
 | M | Ton an/aus |
 | G | Reichweiten aller Türme |
+| C | Schnellbau: zuletzt gebauten Turm wählen |
 | Mausrad / + / − / 0 | Zoomen / zurücksetzen |
 | Rechte Maustaste ziehen | Ansicht verschieben |
 | F11 | Vollbild |
@@ -110,6 +124,8 @@ Vor jeder Partie wählst du **Leicht · Mittel · Schwer · Experte**. Je höher
 
 ## Die Modi
 
+Im Hauptmenü unter **Modi** findest du Advance, Frontbau, Tägliches Frontbau, Tägliche Herausforderung und Endlos.
+
 | | Standard | Advance |
 |---|---|---|
 | Wellen | 30 (Boss alle 10) | 30 (Boss alle 10) |
@@ -121,11 +137,13 @@ Vor jeder Partie wählst du **Leicht · Mittel · Schwer · Experte**. Je höher
 
 **Endlos-Modus:** Auf jeder Karte zuschaltbar – Wellen ohne Ende, sie werden immer härter.
 
+**Frontbau:** 30 Wellen. Vor jeder Welle eine von drei Karten: Wegstück, Turm (kostenlos) oder Spezialkarte (Nachschub, Orbitalladung, Kernverstärkung, Doppelzug). Türme gibt es nur über Karten, Credits gehen in Ausbauten. Drohnenhangar, Schildgenerator und einige Spezialkarten werden über Erfolge freigeschaltet. Die erste Karte ist immer ein Turm.
+
 **Tägliche Herausforderung:** Jeden Tag eine feste Karte, zwei Sonderregeln und dieselben Wellen für alle (20 Wellen auf „Mittel“ mit Kommandant und Ereignissen, ohne Forschungs-Boni).
 
 **Karten-Editor:** Weg mit runden Kurven, Startpunkt, Landschaft (Glutwüste, Frostebene, Kristallfeld, Giftdschungel, Aschewüste, Nebelsumpf) und Hindernisse selbst setzen, speichern und in beiden Modi spielen.
 
-**Erfolge:** 20 Erfolge zum Freischalten.
+**Erfolge:** 23 Erfolge zum Freischalten.
 
 Rekorde, Forschung, Erfolge, eigene Karten, Einstellungen und der laufende Spielstand (zwischen den Wellen) werden im Browser gespeichert.
 
@@ -157,7 +175,7 @@ Wird das Spiel in einem `<iframe>` eingebunden, braucht der Rahmen die Erlaubnis
 
 ## Grafik
 
-Vier Landschaften mit eigener Stimmung (Tag, Dämmerung, Nacht), runde Straßen mit Spuren, Flüsse aus Lava, Eis oder Gift, Licht von Schüssen und Explosionen, Bodennebel, Brandflecken. In den Einstellungen: **Grafik Hoch / Mittel / Niedrig** (am Handy startet das Spiel auf Mittel).
+Sechs Landschaften mit eigener Stimmung (Tag, Dämmerung, Nacht), runde Straßen mit Spuren, Flüsse aus Lava, Eis oder Gift, Licht von Schüssen und Explosionen, Bodennebel, Brandflecken. In den Einstellungen: **Grafik Hoch / Mittel / Niedrig** (am Handy startet das Spiel auf Mittel).
 
 ## Technik in Kürze
 

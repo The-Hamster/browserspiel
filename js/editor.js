@@ -119,7 +119,7 @@ export class Editor {
       if (m < 0.8) wps.unshift(m === dl ? [-1.2, y] : m === dr ? [COLS + 1.2, y] : m === dt ? [x, -1.2] : [x, ROWS + 1.2]);
     }
     return {
-      v: 3, id: this.id, name: this.name.trim() || 'Eigene Karte', desc: 'Eigene Karte aus dem Editor.', custom: true, biome: this.biome,
+      v: 4, id: this.id, name: this.name.trim() || 'Eigene Karte', desc: 'Eigene Karte aus dem Editor.', custom: true, biome: this.biome,
       paths: wps.length >= 2 ? [wps] : [], base: wps.length ? wps[wps.length - 1] : [-9, -9],
       water: [], obstacles: this.obstacles.map(o => o.slice()), editorWps: this.wps.map(p => p.slice()),
     };

@@ -28,7 +28,7 @@ export async function submitScore(entry) {
   catch (err) { return { sent: false }; }
 }
 
-// Liste holen: board = 'gesamt' | 'daily-JJJJ-MM-TT' | 'karte-<id>'
+// Liste holen: board = 'gesamt' | 'daily-JJJJ-MM-TT' | 'kdaily-JJJJ-MM-TT' | 'modus-<modus>' | 'karte-<id>'
 export async function fetchScores(board) {
   if (location.protocol === 'file:') throw new Error('offline');
   const r = await req('/scores?board=' + encodeURIComponent(board) + '&limit=50');
@@ -38,6 +38,8 @@ export async function fetchScores(board) {
 export function localScores(board) {
   const h = store.data.history || [];
   if (board.startsWith('daily-')) return h.filter(e => e.daily === board.slice(6));
+  if (board.startsWith('kdaily-')) return h.filter(e => e.kdaily === board.slice(7));
+  if (board.startsWith('modus-')) return h.filter(e => e.mode === board.slice(6));
   if (board.startsWith('karte-')) return h.filter(e => e.map === board.slice(6));
   return h;
 }

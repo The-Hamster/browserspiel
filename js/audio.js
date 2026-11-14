@@ -22,6 +22,7 @@ class Sfx {
     for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
     this.apply();
     this.startMusic();
+    if (this.theme) this.setTheme(this.theme);
   }
   setVolume(v) { this.volume = v; this.apply(); }
   setMuted(m) { this.muted = m; this.apply(); }
@@ -121,6 +122,24 @@ class Sfx {
     }
   }
 
+  // Klangteppich je Landschaft (Grundtöne, Filter, Tonleiter der Glockentöne)
+  setTheme(name) {
+    const T = {
+      wueste:    { n: [55, 82.4, 110, 130.8], f: 620, s: [220, 261.6, 293.7, 329.6, 392, 440] },
+      eis:       { n: [65.4, 98, 130.8, 196], f: 1500, s: [523.3, 587.3, 659.3, 784, 880, 1046.5] },
+      kristall:  { n: [61.7, 92.5, 123.5, 185], f: 950, s: [246.9, 311.1, 370, 415.3, 493.9, 622.3] },
+      dschungel: { n: [49, 73.4, 98, 116.5], f: 720, s: [196, 233.1, 261.6, 293.7, 349.2, 392] },
+      asche:     { n: [41.2, 61.7, 82.4, 98], f: 430, s: [164.8, 196, 220, 246.9, 293.7] },
+      sumpf:     { n: [46.2, 69.3, 92.5, 110], f: 520, s: [185, 220, 246.9, 277.2, 329.6, 370] },
+    }[name] || null;
+    this.theme = name;
+    if (!T || !this.ctx || !this.padOsc) return;
+    const t = this.ctx.currentTime;
+    this.padOsc.forEach((o, i) => o.frequency.setTargetAtTime(T.n[(i >> 1) % T.n.length], t, 1.5));
+    this.padFilter.frequency.setTargetAtTime(T.f, t, 1.5);
+    this.pingScale = T.s;
+  }
+
   // Boss-Musik: treibender Bass und Schlagwerk, solange ein Boss lebt
   setBoss(on) {
     if (!this.ctx) return;
@@ -156,20 +175,23 @@ class Sfx {
     const c = this.ctx;
     const notes = [55, 82.4, 110, 130.8];
     const lp = c.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 700; lp.Q.value = 3;
+    this.padFilter = lp; this.padOsc = [];
     lp.connect(this.musicBus);
     const lfo = c.createOscillator(); const lfoG = c.createGain();
     lfo.frequency.value = 0.05; lfoG.gain.value = 350; lfo.connect(lfoG); lfoG.connect(lp.frequency); lfo.start();
     for (const f of notes) {
       for (const det of [-6, 6]) {
         const o = c.createOscillator(); o.type = 'sawtooth'; o.frequency.value = f; o.detune.value = det;
+        this.padOsc.push(o);
         const g = c.createGain(); g.gain.value = 0.05;
         o.connect(g); g.connect(lp); o.start();
       }
     }
     // gelegentliche Glockentöne
-    const scale = [220, 261.6, 293.7, 329.6, 392, 440, 523.3];
+    this.pingScale = [220, 261.6, 293.7, 329.6, 392, 440, 523.3];
     const ping = () => {
       if (this.musicOn && !this.muted && this.ctx.state === 'running') {
+        const scale = this.pingScale;
         const t = c.currentTime, f = scale[Math.floor(Math.random() * scale.length)];
         const o = c.createOscillator(), g = c.createGain();
         o.type = 'sine'; o.frequency.value = f * 2;

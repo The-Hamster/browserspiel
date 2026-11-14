@@ -1,8 +1,8 @@
 // Gelände zeichnen: Boden, Straße, Flüsse, Pflanzen, Felsen, Kristalle, Station
-import { TILE, WORLD_W, WORLD_H } from './data.js';
+import { TILE, WORLD_W, WORLD_H, TILT } from './data.js';
 import { LANE } from './game.js';
 import { mk, roundRect } from './sprites.js';
-import { rgba, mix, mulberry32, hashString } from './util.js';
+import { rgba, mix, mulberry32, hashString, clamp } from './util.js';
 
 let noiseTile = null;
 // Weiche Struktur-Textur (Wertrauschen, mehrere Ebenen), kachelbar
@@ -110,9 +110,93 @@ function drawObstacle(g, o, B) {
 }
 
 // ---------------------------------------------------------------- Ganze Karte (in Weltkoordinaten)
+// Randzone, Schluchten und Felskante entlang der Grenzlinie
+function loopPath(g, P, off = 0) {
+  g.moveTo(P[0].x + P[0].ox * off, P[0].y + P[0].oy * off);
+  for (let i = 1; i < P.length; i++) g.lineTo(P[i].x + P[i].ox * off, P[i].y + P[i].oy * off);
+  g.closePath();
+}
+function drawBorder(g, map, pat) {
+  const B = map.biome, P = map.border.pts, n = P.length;
+  // Randzone: dunkler, felsiger Boden
+  g.save();
+  g.beginPath(); g.rect(-80, -80, WORLD_W + 160, WORLD_H + 160); loopPath(g, P, 0);
+  g.clip('evenodd');
+  g.fillStyle = rgba(B.dark, 0.38); g.fillRect(-80, -80, WORLD_W + 160, WORLD_H + 160);
+  g.globalCompositeOperation = 'overlay'; g.globalAlpha = 0.7; g.fillStyle = pat;
+  g.save(); g.scale(0.5, 0.5); g.fillRect(-160, -160, WORLD_W * 2 + 320, WORLD_H * 2 + 320); g.restore();
+  g.globalCompositeOperation = 'source-over'; g.globalAlpha = 1;
+  // Geröll am Rand
+  const rng = mulberry32(hashString('rim-' + (map.seedId || map.id)));
+  for (let i = 0; i < n; i++) {
+    const p = P[i];
+    for (let k = 0; k < 3; k++) {
+      const d = 6 + rng() * 120, x = p.x + p.ox * d + (rng() - 0.5) * 30, y = p.y + p.oy * d + (rng() - 0.5) * 30, r = 2 + rng() * 6;
+      g.fillStyle = 'rgba(0,0,0,0.32)'; g.beginPath(); g.ellipse(x + 1.5, y + 1.5, r, r * 0.75, 0, 0, 7); g.fill();
+      g.fillStyle = mix(B.rock, '#ffffff', 0.08 + rng() * 0.12); g.beginPath(); g.ellipse(x, y, r, r * 0.75, rng() * 3, 0, 7); g.fill();
+    }
+  }
+  g.restore();
+  // Schluchten: zusammenhängende Abschnitte mit v < 0
+  const depth = (p) => { const d = clamp(-p.v * 3, 0, 1) * (1 - p.pass); return d * d * (3 - 2 * d); };
+  let s0 = 0;
+  while (s0 < n && depth(P[s0]) > 0.06) s0++;
+  if (s0 >= n) s0 = 0;
+  const runs = [];
+  let cur = null;
+  for (let k = 1; k <= n; k++) {
+    const p = P[(s0 + k) % n], d = depth(p);
+    if (d > 0.06) { if (!cur) { cur = []; runs.push(cur); } cur.push(p); } else cur = null;
+  }
+  const deep = mix(B.dark, '#000000', 0.6), wall = mix(B.rock, '#000000', 0.38), lip = mix(B.ground2 || B.ground, '#ffffff', 0.22);
+  for (const run of runs) {
+    if (run.length < 3) continue;
+    const inner = run.map(p => ({ x: p.x + p.ox * 10, y: p.y + p.oy * 10 }));
+    // runde Enden statt Spitzen
+    run[0] = { ...run[0], cw: 0 }; run[run.length - 1] = { ...run[run.length - 1], cw: 0 };
+    const outer = run.map(p => { const w = 10 + p.cw * depth(p); return { x: p.x + p.ox * w, y: p.y + p.oy * w }; });
+    const mid = run.map(p => { const w = 10 + p.cw * depth(p) * 0.5; return { x: p.x + p.ox * w, y: p.y + p.oy * w }; });
+    const poly = () => { g.beginPath(); inner.forEach((q, i) => i ? g.lineTo(q.x, q.y) : g.moveTo(q.x, q.y)); for (let i = outer.length - 1; i >= 0; i--) g.lineTo(outer[i].x, outer[i].y); g.closePath(); };
+    const line = (pts, dy = 0) => { g.beginPath(); pts.forEach((q, i) => i ? g.lineTo(q.x, q.y + dy) : g.moveTo(q.x, q.y + dy)); };
+    g.save();
+    g.lineCap = 'round'; g.lineJoin = 'round';
+    g.shadowColor = 'rgba(0,0,0,0.5)'; g.shadowBlur = 10;
+    poly(); g.fillStyle = deep; g.fill();
+    g.shadowBlur = 0;
+    poly(); g.clip();
+    // sichtbare Felswand unter der oberen Kante + Gesteinsschichten
+    g.strokeStyle = wall; g.lineWidth = 26;
+    line(inner, 13); g.stroke(); line(outer, 13); g.stroke();
+    g.strokeStyle = 'rgba(255,255,255,0.07)'; g.lineWidth = 1.5;
+    for (const dy of [6, 13, 20]) { line(inner, dy); g.stroke(); line(outer, dy); g.stroke(); }
+    // Tiefe: Lava, Eisnebel, Kristall- oder Giftschein
+    g.lineWidth = 1;
+    const glowCol = B.waterGlow ? B.water : (B.crystal || B.accent);
+    g.globalCompositeOperation = 'lighter';
+    g.shadowColor = glowCol; g.shadowBlur = 18;
+    g.strokeStyle = rgba(glowCol, B.waterGlow ? 0.55 : 0.18);
+    let avg = 0; for (const p of run) avg += p.cw * depth(p); avg /= run.length;
+    g.lineWidth = Math.max(2, avg * (B.waterGlow ? 0.2 : 0.26));
+    line(mid, 8); g.stroke();
+    g.shadowBlur = 0; g.globalCompositeOperation = 'source-over';
+    g.restore();
+    // helle Abbruchkanten
+    g.save(); g.lineCap = 'round'; g.lineJoin = 'round';
+    g.strokeStyle = 'rgba(0,0,0,0.35)'; g.lineWidth = 5; line(inner, 2); g.stroke(); line(outer, 2); g.stroke();
+    g.strokeStyle = rgba(lip, 0.55); g.lineWidth = 2.2; line(inner); g.stroke(); line(outer); g.stroke();
+    g.restore();
+  }
+  // weiche Kante zwischen Baufläche und Randzone
+  g.save();
+  g.lineJoin = 'round';
+  g.beginPath(); loopPath(g, P, 2); g.strokeStyle = 'rgba(0,0,0,0.22)'; g.lineWidth = 8; g.stroke();
+  g.beginPath(); loopPath(g, P, -1); g.strokeStyle = rgba(lip, 0.18); g.lineWidth = 2; g.stroke();
+  g.restore();
+}
+
 export function drawTerrain(g, map, opts = {}) {
   const B = map.biome;
-  const rng = mulberry32(hashString('terrain-' + map.id));
+  const rng = mulberry32(hashString('terrain-' + (map.seedId || map.id)));
   g.save();
   g.beginPath(); g.rect(0, 0, WORLD_W, WORLD_H); g.clip();
   // Boden
@@ -199,13 +283,17 @@ export function drawTerrain(g, map, opts = {}) {
   }
   // Station um den Kern
   if (map.smooth.length) drawStation(g, map.basePos.x, map.basePos.y, B);
-  // Randabdunklung
-  const vg = g.createLinearGradient(0, 0, 0, WORLD_H);
-  vg.addColorStop(0, 'rgba(0,0,0,0.25)'); vg.addColorStop(0.12, 'rgba(0,0,0,0)'); vg.addColorStop(0.88, 'rgba(0,0,0,0)'); vg.addColorStop(1, 'rgba(0,0,0,0.3)');
-  g.fillStyle = vg; g.fillRect(0, 0, WORLD_W, WORLD_H);
-  const hg = g.createLinearGradient(0, 0, WORLD_W, 0);
-  hg.addColorStop(0, 'rgba(0,0,0,0.25)'); hg.addColorStop(0.08, 'rgba(0,0,0,0)'); hg.addColorStop(0.92, 'rgba(0,0,0,0)'); hg.addColorStop(1, 'rgba(0,0,0,0.25)');
-  g.fillStyle = hg; g.fillRect(0, 0, WORLD_W, WORLD_H);
+  // natürliche Grenze (Berge stehen aufrecht und werden extra gezeichnet)
+  if (map.border) drawBorder(g, map, pat);
+  // zum Rand hin weich ausblenden, damit die Umgebung ohne Kante anschließt
+  if (opts.feather) {
+    g.globalCompositeOperation = 'destination-out';
+    const F = 130;
+    const fe = (x0, y0, x1, y1, w, h) => { const gr = g.createLinearGradient(x0, y0, x1, y1); gr.addColorStop(0, 'rgba(0,0,0,1)'); gr.addColorStop(1, 'rgba(0,0,0,0)'); g.fillStyle = gr; g.fillRect(Math.min(x0, x1), Math.min(y0, y1), w, h); };
+    fe(0, 0, F, 0, F, WORLD_H); fe(WORLD_W, 0, WORLD_W - F, 0, F, WORLD_H);
+    fe(0, 0, 0, F, WORLD_W, F); fe(0, WORLD_H, 0, WORLD_H - F, WORLD_W, F);
+    g.globalCompositeOperation = 'source-over';
+  }
   g.restore();
 
 }
@@ -262,4 +350,92 @@ export function drawThumbTerrain(g, map, W, H) {
     g.beginPath(); g.arc(map.basePos.x, map.basePos.y, 36, 0, 7); g.fill(); g.shadowBlur = 0;
   }
   g.restore();
+}
+
+// ---------------------------------------------------------------- Kulisse jenseits des Grenzwalls
+// Zeichnet die Welt von -M bis W+M (Weltkoordinaten), Ebene ist bereits gestaucht skaliert.
+export function drawScenery(g, map, M, res, uprightSprite) {
+  const B = map.biome;
+  const rng = mulberry32(hashString('scenery-' + (map.def && map.def.kachel ? 'kachel' : map.seedId || map.id)));
+  const X0 = -M, Y0 = -M, X1 = WORLD_W + M, Y1 = WORLD_H + M;
+  g.fillStyle = B.ground; g.fillRect(X0, Y0, X1 - X0, Y1 - Y0);
+  for (let i = 0; i < 90; i++) {
+    const x = X0 + rng() * (X1 - X0), y = Y0 + rng() * (Y1 - Y0), r = 80 + rng() * 240;
+    const gr = g.createRadialGradient(x, y, 0, x, y, r);
+    const c = rng() < 0.55 ? B.ground2 : B.dark;
+    gr.addColorStop(0, rgba(c, 0.55)); gr.addColorStop(1, rgba(c, 0));
+    g.fillStyle = gr; g.fillRect(x - r, y - r, r * 2, r * 2);
+  }
+  const pat = g.createPattern(noise(), 'repeat');
+  g.globalCompositeOperation = 'overlay'; g.globalAlpha = 0.5; g.fillStyle = pat; g.fillRect(X0, Y0, X1 - X0, Y1 - Y0);
+  g.globalCompositeOperation = 'source-over'; g.globalAlpha = 1;
+  g.fillStyle = rgba(B.dark, 0.38); g.fillRect(X0, Y0, X1 - X0, Y1 - Y0);
+  // Krater
+  for (let i = 0; i < 30; i++) {
+    const x = X0 + rng() * (X1 - X0), y = Y0 + rng() * (Y1 - Y0), r = 18 + rng() * 50;
+    const gr = g.createRadialGradient(x - r * 0.2, y - r * 0.2, r * 0.2, x, y, r);
+    gr.addColorStop(0, 'rgba(0,0,0,0.28)'); gr.addColorStop(1, 'rgba(0,0,0,0)');
+    g.fillStyle = gr; g.beginPath(); g.arc(x, y, r, 0, 7); g.fill();
+  }
+  // Wasser und Straßen laufen nach draußen weiter
+  const extend = (pts, len) => {
+    const a = pts[0], b = pts[Math.min(3, pts.length - 1)], l = Math.hypot(a.x - b.x, a.y - b.y) || 1;
+    return [{ x: a.x + (a.x - b.x) / l * len, y: a.y + (a.y - b.y) / l * len }, ...pts];
+  };
+  g.lineCap = 'round'; g.lineJoin = 'round';
+  // nur was den Kartenrand wirklich erreicht, läuft draußen weiter
+  const atEdge = (p) => p.x < 40 || p.y < 40 || p.x > WORLD_W - 40 || p.y > WORLD_H - 40;
+  for (const w of map.water) {
+    const a = atEdge(w.pts[0]), b = atEdge(w.pts[w.pts.length - 1]);
+    if (!a && !b) continue;
+    let pts = a ? extend(w.pts, M * 1.6) : w.pts;
+    if (b) pts = extend(pts.slice().reverse(), M * 1.6);
+    g.strokeStyle = rgba(B.dark, 0.85); g.lineWidth = w.w + 16; strokePts(g, pts);
+    if (B.waterGlow) { g.shadowColor = B.water; g.shadowBlur = 18; }
+    g.strokeStyle = B.water; g.lineWidth = w.w - 2; strokePts(g, pts); g.shadowBlur = 0;
+    g.strokeStyle = rgba(B.water2, 0.4); g.lineWidth = w.w * 0.45; strokePts(g, pts);
+  }
+  for (const p of map.smooth) {
+    if (!atEdge(p[0])) continue;
+    const pts = extend(p, M * 1.6).slice(0, 3);
+    g.strokeStyle = rgba(B.dark, 0.6); g.lineWidth = LANE * 2 + 14; strokePts(g, pts);
+    g.strokeStyle = B.roadEdge; g.lineWidth = LANE * 2 + 2; strokePts(g, pts);
+    g.strokeStyle = B.road; g.lineWidth = LANE * 2 - 6; strokePts(g, pts);
+    g.setLineDash([16, 7]); g.lineWidth = 3.2; g.strokeStyle = 'rgba(0,0,0,0.2)';
+    for (const off of [-11, 11]) strokePts(g, offsetPts(pts, off));
+    g.setLineDash([]);
+  }
+  // Kleinteile und aufrechte Felsen, Kristalle, Pflanzen
+  for (let i = 0; i < 900; i++) {
+    const x = X0 + rng() * (X1 - X0), y = Y0 + rng() * (Y1 - Y0);
+    if (x > 60 && x < WORLD_W - 60 && y > 60 && y < WORLD_H - 60) continue;
+    g.fillStyle = 'rgba(0,0,0,0.3)'; g.beginPath(); g.ellipse(x + 1.5, y + 1.5, 4, 3, 0, 0, 7); g.fill();
+    g.fillStyle = mix(B.rock, '#ffffff', 0.12); g.beginPath(); g.ellipse(x, y, 3 + rng() * 3, 2.4, rng() * 3, 0, 7); g.fill();
+  }
+  const objs = [];
+  for (let i = 0; i < 70; i++) {
+    const x = X0 + 30 + rng() * (X1 - X0 - 60), y = Y0 + 30 + rng() * (Y1 - Y0 - 60);
+    if (x > -60 && x < WORLD_W + 60 && y > -60 && y < WORLD_H + 60) continue;
+    const k = rng();
+    objs.push({ x, y, r: 16 + rng() * 26, kind: k < 0.45 ? 'tree' : k < 0.75 ? 'rock' : 'crystal', rot: rng() * 6.28 });
+  }
+  objs.sort((a, b) => a.y - b.y);
+  if (uprightSprite) {
+    for (const o of objs) {
+      const sp = uprightSprite(o);
+      g.save(); g.setTransform(res, 0, 0, res, (o.x + M) * res, (o.y + M) * TILT * res);
+      g.drawImage(sp.c, -sp.ax, -sp.ay, sp.w, sp.h);
+      g.restore();
+    }
+  }
+  // nach außen dunkler werden
+  const fade = (x0, y0, x1, y1, gx0, gy0, gx1, gy1) => {
+    const gr = g.createLinearGradient(gx0, gy0, gx1, gy1);
+    gr.addColorStop(0, 'rgba(3,5,10,0)'); gr.addColorStop(0.2, 'rgba(3,5,10,0.08)'); gr.addColorStop(0.6, 'rgba(3,5,10,0.45)'); gr.addColorStop(1, 'rgba(3,5,10,0.92)');
+    g.fillStyle = gr; g.fillRect(x0, y0, x1 - x0, y1 - y0);
+  };
+  fade(X0, Y0, 0, Y1, 0, 0, X0, 0);
+  fade(WORLD_W, Y0, X1, Y1, WORLD_W, 0, X1, 0);
+  fade(X0, Y0, X1, 0, 0, 0, 0, Y0);
+  fade(X0, WORLD_H, X1, Y1, 0, WORLD_H, 0, Y1);
 }

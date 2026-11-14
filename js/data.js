@@ -1,15 +1,19 @@
 // Spieldaten: Türme, Gegner, Karten, Basis-Ausbau, Fähigkeiten, Forschung, Erfolge
 
 export const TILE = 64;
-export const COLS = 20;
-export const ROWS = 14;
+export const COLS = 30;
+export const ROWS = 24;
 export const WORLD_W = COLS * TILE;
 export const WORLD_H = ROWS * TILE;
 // Neigung der Kamera: Boden wird gestaucht, Gebäude stehen aufrecht (leichte Seitenansicht)
 export const TILT = 0.78;
 
 export const GAME_TITLE = 'KERNWACHT';
-export const VERSION = '1.0.5';
+export const VERSION = '1.0.6';
+// Kulisse jenseits des Grenzwalls (Weltpixel) und Größe der Standard-Ansicht (Felder)
+export const SCENERY = 640;
+export const VIEW_COLS = 20;
+export const VIEW_ROWS = 14;
 
 // ---------------------------------------------------------------- Türme
 // Stufe '1' → '2' → Variante 'a' | 'b' | ('c' per Forschung). Werte vererben sich.
@@ -152,7 +156,7 @@ export function tierLevel(tier) { return tier === '1' ? 1 : tier === '2' ? 2 : 3
 // ---------------------------------------------------------------- Gegner
 export const ENEMIES = {
   swarm:    { name: 'Schwärmer', hp: 28, speed: 80, armor: 0, reward: 3, dmg: 1, r: 9, color: '#8dff5a', cost: 1, spacing: 0.33, desc: 'Viele, schnell, schwach.' },
-  tank:     { name: 'Belagerer', hp: 240, speed: 32, armor: 5, reward: 15, dmg: 4, r: 17, color: '#ff9a3c', cost: 7, spacing: 1.7, shoot: { dmg: 8, cd: 3, range: 2.1 }, desc: 'Langsam, gepanzert, beschießt Türme.' },
+  tank:     { name: 'Belagerer', hp: 240, speed: 32, armor: 5, reward: 15, dmg: 4, r: 17, color: '#ff9a3c', cost: 7, spacing: 1.7, shoot: { dmg: 8, cd: 3, range: 2.1 }, desc: 'Langsam, gepanzert, schießt aus der Nähe auf den Kern (im Advance-Modus auch auf Türme).' },
   shield:   { name: 'Schildträger', hp: 110, shield: 110, speed: 44, armor: 1, reward: 12, dmg: 2, r: 14, color: '#4fc3ff', cost: 5, spacing: 1.1, desc: 'Trägt ein Schild. EMP hilft.' },
   phantom:  { name: 'Phantom', hp: 75, speed: 62, armor: 0, reward: 11, dmg: 2, r: 12, color: '#c58bff', cost: 4, spacing: 0.9, cloak: true, desc: 'Getarnt – nur mit Radarmast sichtbar.' },
   flyer:    { name: 'Gleiter', hp: 65, speed: 58, armor: 0, reward: 9, dmg: 2, r: 13, color: '#ffe14d', cost: 3, spacing: 0.9, air: true, desc: 'Fliegt direkt zum Kern.' },
@@ -164,7 +168,7 @@ export const ENEMIES = {
 // Tipps für das Gegner-Lexikon
 export const ENEMY_TIPS = {
   swarm: { strong: 'Kommen in großer Zahl.', weak: 'Flächenschaden: Plasmawerfer, Bogenspule.' },
-  tank: { strong: 'Dicke Panzerung, beschießt Türme.', weak: 'Starke Einzeltreffer: Schienenkanone, Plasma. EMP-Überlast schwächt die Panzerung.' },
+  tank: { strong: 'Dicke Panzerung, schießt aus der Nähe.', weak: 'Starke Einzeltreffer: Schienenkanone, Plasma. EMP-Überlast schwächt die Panzerung.' },
   shield: { strong: 'Energieschild schluckt Schaden.', weak: 'EMP-Turm zerstört Schilde sofort.' },
   phantom: { strong: 'Unsichtbar für Türme.', weak: 'Radarmast in der Nähe des Weges.' },
   flyer: { strong: 'Fliegt direkt zum Kern, ignoriert den Weg.', weak: 'Raketenwerfer (doppelter Schaden), Laser, Drohnen.' },
@@ -266,6 +270,9 @@ export const ACHIEVEMENTS = [
   { id: 'mapper', name: 'Kartograf', desc: 'Speichere eine eigene Karte.' },
   { id: 'hero10', name: 'Legendärer Kommandant', desc: 'Bringe den Kommandanten auf Stufe 10.' },
   { id: 'daily', name: 'Tagesgeschäft', desc: 'Schließe eine tägliche Herausforderung ab.' },
+  { id: 'kachel10', name: 'Frontarbeiter', desc: 'Erreiche Welle 10 im Frontbau.' },
+  { id: 'kachelwin', name: 'Baumeister der Front', desc: 'Gewinne eine Partie Frontbau.' },
+  { id: 'kachelweg', name: 'Langer Marsch', desc: 'Baue im Frontbau einen Weg aus 40 Kacheln.' },
   { id: 'research5', name: 'Forschungsleitung', desc: 'Schalte 5 Forschungen frei.' },
   { id: 'chain6', name: 'Kettenreaktion', desc: 'Ein Blitz trifft 6 Gegner auf einmal.' },
   { id: 'rich', name: 'Großverdiener', desc: 'Verdiene 5.000 Credits in einem Spiel.' },

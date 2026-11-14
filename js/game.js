@@ -8,10 +8,12 @@ import { Particles, P_GLOW, P_SPARK, P_SMOKE, P_DEBRIS, P_HEAT } from './particl
 import { ci } from './sprites.js';
 import { sfx } from './audio.js';
 import { dist2, clamp, angleLerp, rand, mulberry32, hashString } from './util.js';
+import { startState, kachelDef, drawHand, pathCells } from './kachel.js';
 
 // ------------------------------------------------------------------ Karte aufbereiten
 export const CELL = 8;                       // Raster für "frei / belegt" (in Weltpixeln)
-export const GW = Math.ceil(WORLD_W / CELL), GH = Math.ceil(WORLD_H / CELL);
+export const GW = Math.ceil(WORLD_W / CELL);
+export const GH = Math.ceil(WORLD_H / CELL);
 export const TOWER_R = 21;                   // Platzbedarf eines Turms
 export const LANE = 26;                      // halbe Wegbreite inkl. Rand
 
@@ -49,17 +51,38 @@ export function smoothPoints(wps, radius = 1.35) {
 }
 
 // alte Karten (Feldmitte = x + 0.5) auf neues Format umrechnen
-export function normalizeDef(def) {
-  if (def.v === 3 || (!def.custom && MAPS_IDS.has(def.id) && def.v !== 2)) return def;
-  // ältere Karten (18 × 10) mittig auf die größere Fläche setzen
-  const dx = 1, dy = 2;
-  const half = def.v === 2 ? 0 : 0.5;
+// Kartenformate: v2/alt (18 × 10) -> v3 (20 × 14) -> v4 (30 × 24, Baufläche +5 in jede Richtung)
+function toV3(def) {
+  const dx = 1, dy = 2, half = def.v === 2 ? 0 : 0.5;
   const sh = (p) => [p[0] + half + dx, p[1] + half + dy];
   return {
     ...def, v: 3, biome: def.biome || 'kristall', paths: def.paths.map(pp => pp.map(sh)), base: sh(def.base),
     water: (def.water || []).map(w => ({ ...w, pts: w.pts.map(sh) })), obstacles: (def.obstacles || []).map(o => [o[0] + half + dx, o[1] + half + dy, o[2], o[3]]),
     editorWps: def.editorWps ? def.editorWps.map(sh) : undefined,
   };
+}
+function toV4(def) {
+  const D = 5, OW = 20, OH = 14;
+  const sh = (p) => [p[0] + D, p[1] + D];
+  // Punkte außerhalb der alten Fläche bis an den neuen Rand verlängern
+  const out = (o, n) => {
+    const r = n.slice();
+    if (o[0] < 0) r[0] = -1.2; else if (o[0] > OW) r[0] = COLS + 1.2;
+    if (o[1] < 0) r[1] = -1.2; else if (o[1] > OH) r[1] = ROWS + 1.2;
+    return r;
+  };
+  const ext = (pts) => pts.map((p, i) => (i === 0 || i === pts.length - 1) ? out(p, sh(p)) : sh(p));
+  return {
+    ...def, v: 4, paths: def.paths.map(pp => pp.map((p, i) => i === 0 ? out(p, sh(p)) : sh(p))), base: sh(def.base),
+    water: (def.water || []).map(w => ({ ...w, pts: ext(w.pts) })), obstacles: (def.obstacles || []).map(o => [o[0] + D, o[1] + D, o[2], o[3]]),
+    editorWps: def.editorWps ? def.editorWps.map(sh) : undefined,
+  };
+}
+export function normalizeDef(def) {
+  if (def.v === 4) return def;
+  let d = def;
+  if (!(d.v === 3 || (!d.custom && MAPS_IDS.has(d.id) && d.v !== 2))) d = toV3(d);
+  return toV4({ ...d, v: 3 });
 }
 const MAPS_IDS = new Set(['krater', 'zwilling', 'spirale', 'gabel', 'serpentine', 'sumpf']);
 
@@ -86,13 +109,42 @@ export function buildMap(rawDef) {
   for (const p of smooth) stampLine(p, LANE);
   const water = (def.water || []).map(w => ({ pts: smoothPoints(w.pts, 1.6), w: w.w * TILE }));
   for (const w of water) stampLine(w.pts, w.w / 2 + 4);
+  // Durchgänge in der Grenze: wo Wege und Flüsse den Rand kreuzen
+  const gates = [];
+  const crossing = (pts) => {
+    for (let i = 1; i < pts.length; i++) {
+      const a = pts[i - 1], b = pts[i];
+      const inA = a.x >= 0 && a.y >= 0 && a.x <= WORLD_W && a.y <= WORLD_H, inB = b.x >= 0 && b.y >= 0 && b.x <= WORLD_W && b.y <= WORLD_H;
+      if (inA !== inB) return { x: clamp((a.x + b.x) / 2, 0, WORLD_W), y: clamp((a.y + b.y) / 2, 0, WORLD_H) };
+    }
+    return null;
+  };
+  for (const p of smooth) { const c = crossing(p); if (c) gates.push({ ...c, w: 56, road: true }); }
+  for (const w of water) for (const pts of [w.pts, w.pts.slice().reverse()]) { const c = crossing(pts); if (c) gates.push({ ...c, w: w.w / 2 + 18, road: false }); }
+  // natürliche Grenze: Berge und Schluchten mit unregelmäßigem Rand
+  const seedId = def.decoSeed || def.id || 'x';
+  const segD = (px, py, a, b) => {
+    const dx = b.x - a.x, dy = b.y - a.y, l = dx * dx + dy * dy || 1;
+    const t = clamp(((px - a.x) * dx + (py - a.y) * dy) / l, 0, 1);
+    return Math.hypot(a.x + dx * t - px, a.y + dy * t - py);
+  };
+  const near = (pts, m, d) => { for (let i = 1; i < pts.length; i++) if (segD(m.x, m.y, pts[i - 1], pts[i]) < d) return true; return false; };
+  const border = makeBorder(seedId, gates);
+  // wo Wege oder Flüsse durch die Randzone laufen, keine Schlucht und keine Berge
+  for (const p of border.pts) {
+    let d = 1e9;
+    for (const pp of smooth) for (let i = 1; i < pp.length; i++) d = Math.min(d, segD(p.x, p.y, pp[i - 1], pp[i]));
+    for (const w of water) for (let i = 1; i < w.pts.length; i++) d = Math.min(d, segD(p.x, p.y, w.pts[i - 1], w.pts[i]) - w.w / 2);
+    p.pass = Math.max(p.pass, clamp(1 - (d - 70) / 130, 0, 1));
+  }
+  fillOutside(grid, border.pts);
   const [bx, by] = def.base;
   const basePos = { x: bx * TILE, y: by * TILE };
   if (smooth.length) stamp(basePos.x, basePos.y, 78);
   const obstacles = (def.obstacles || []).map(([x, y, r, kind]) => ({ x: x * TILE, y: y * TILE, r: r * TILE, kind: kind || 'rock', rot: (x * 7 + y * 13) % 6.28 }));
   for (const o of obstacles) stamp(o.x, o.y, o.r, 2);
   // Deko (zufällig, aber fest je Karte)
-  const rng = mulberry32(hashString((def.id || 'x') + (def.biome || '')));
+  const rng = mulberry32(hashString(seedId + (def.biome || '')));
   const deco = [];
   const freeAt = (x, y, r) => {
     for (const [dx, dy] of [[0, 0], [r, 0], [-r, 0], [0, r], [0, -r]]) {
@@ -107,20 +159,19 @@ export function buildMap(rawDef) {
   };
   if (!def.noDeco) {
     // große Pflanzen/Felsen weit weg vom Weg (blockieren; nicht auf eigenen Karten)
-    for (let tries = 0, n = 0; !def.custom && tries < 400 && n < 13; tries++) {
-      const x = 30 + rng() * (WORLD_W - 60), y = 30 + rng() * (WORLD_H - 60), r = 18 + rng() * 16;
+    for (let tries = 0, n = 0; !def.custom && tries < 900 && n < 30; tries++) {
+      const x = 30 + rng() * (WORLD_W - 60), y = 30 + rng() * (WORLD_H - 60), r = 18 + rng() * 16, k1 = rng(), k2 = rng(), rot = rng() * 6.28;
       if (!freeAt(x, y, r + 6) || nearPath(x, y, 120)) continue;
-      const kind = rng() < 0.55 ? 'tree' : rng() < 0.5 ? 'rock' : 'crystal';
-      deco.push({ x, y, r, kind, rot: rng() * 6.28, block: true });
+      const kind = k1 < 0.55 ? 'tree' : k2 < 0.5 ? 'rock' : 'crystal';
+      deco.push({ x, y, r, kind, rot, block: true });
       stamp(x, y, r, 2); n++;
     }
     // kleine Steine, Gras, Splitter (blockieren nicht)
-    for (let tries = 0, n = 0; tries < 1400 && n < 210; tries++) {
-      const x = rng() * WORLD_W, y = rng() * WORLD_H, r = 2 + rng() * 6;
+    for (let tries = 0, n = 0; tries < 3000 && n < 480; tries++) {
+      const x = rng() * WORLD_W, y = rng() * WORLD_H, r = 2 + rng() * 6, k = rng(), rot = rng() * 6.28;
       const gx = Math.floor(x / CELL), gy = Math.floor(y / CELL);
       if (grid[gy * GW + gx]) continue;
-      const k = rng();
-      deco.push({ x, y, r, kind: k < 0.45 ? 'pebble' : k < 0.8 ? 'grass' : 'shard', rot: rng() * 6.28, block: false });
+      deco.push({ x, y, r, kind: k < 0.45 ? 'pebble' : k < 0.8 ? 'grass' : 'shard', rot, block: false });
       n++;
     }
   }
@@ -133,8 +184,80 @@ export function buildMap(rawDef) {
     sm[0] = { x: clamp(sm[0].x, -30, WORLD_W + 30), y: clamp(sm[0].y, -30, WORLD_H + 30) };
     return makePath(sm);
   });
+  // keine Berge auf Wegen und Flüssen
+  const clearOf = (m) => !smooth.some(p => near(p, m, m.r + LANE + 18)) && !water.some(w => near(w.pts, m, m.r + w.w / 2 + 14));
+  border.mountains = border.mountains.filter(clearOf);
   const theme = { ground: biome.ground, ground2: biome.ground2, accent: biome.accent, lane: biome.lane };
-  return { id: def.id, name: def.name, def, biome, theme, paths, flyPaths: fly, smooth, water, obstacles, deco, base: def.base, basePos, grid };
+  return { id: def.id, seedId, name: def.name, def, biome, theme, paths, flyPaths: fly, smooth, water, obstacles, deco, base: def.base, basePos, grid, gates, border, mountains: border.mountains };
+}
+
+// Grenze: geschlossene Linie mit wechselnder Tiefe; v > 0 = Berge, v < 0 = Schlucht, pass = Durchgang
+function makeBorder(seed, gates) {
+  const rng = mulberry32(hashString('border-' + seed));
+  const W = WORLD_W, H = WORLD_H, P = 2 * (W + H), STEP = 32;
+  const ph = Array.from({ length: 10 }, () => rng() * 6.2832);
+  const per = (s, k, i) => Math.sin(6.2832 * k * s / P + ph[i]);
+  const raw = [];
+  for (let s = 0; s < P; s += STEP) {
+    let x, y, nx, ny;
+    if (s < W) { x = s; y = 0; nx = 0; ny = 1; }
+    else if (s < W + H) { x = W; y = s - W; nx = -1; ny = 0; }
+    else if (s < 2 * W + H) { x = W - (s - W - H); y = H; nx = 0; ny = -1; }
+    else { x = 0; y = H - (s - 2 * W - H); nx = 1; ny = 0; }
+    let pass = 0;
+    for (const q of gates) pass = Math.max(pass, clamp(1 - (Math.hypot(q.x - x, q.y - y) - q.w - 40) / 150, 0, 1));
+    const inset = (150 + 50 * per(s, 3, 0) + 28 * per(s, 7, 1) + 12 * per(s, 17, 2)) * (1 - pass * 0.6);
+    let v = per(s, 2, 3) + 0.7 * per(s, 5, 4) + 0.25 * per(s, 11, 5);
+    // in den Ecken Berge statt Schlucht (Schluchten würden sich dort überschneiden)
+    const cd = Math.min(Math.hypot(x, y), Math.hypot(W - x, y), Math.hypot(x, H - y), Math.hypot(W - x, H - y));
+    if (cd < 320) { const f = cd / 320; v = v * f + 0.8 * (1 - f); }
+    raw.push({ x: x + nx * inset, y: y + ny * inset, v, pass, cw: 92 + 26 * per(s, 9, 6) });
+  }
+  // Ecken und Kanten abrunden
+  let pts = raw;
+  for (let k = 0; k < 4; k++) {
+    const n = pts.length;
+    pts = pts.map((p, i) => {
+      const a = pts[(i + n - 1) % n], b = pts[(i + 1) % n];
+      return { ...p, x: (a.x + p.x * 2 + b.x) / 4, y: (a.y + p.y * 2 + b.y) / 4 };
+    });
+  }
+  // Richtung nach außen
+  const n = pts.length;
+  for (let i = 0; i < n; i++) {
+    const a = pts[(i + n - 4) % n], b = pts[(i + 4) % n];   // weite Nachbarn: ruhige Richtung auch in Ecken
+    const tx = b.x - a.x, ty = b.y - a.y, l = Math.hypot(tx, ty) || 1;
+    pts[i].ox = ty / l; pts[i].oy = -tx / l;           // Umlauf im Uhrzeigersinn → außen
+  }
+  // Berge entlang der Grenze (aufrecht gezeichnet)
+  const mountains = [];
+  for (let i = 0; i < n; i++) {
+    const p = pts[i], m = clamp(p.v * 2.2, 0, 1) * (1 - p.pass);
+    const r1 = rng(), r2 = rng(), r3 = rng(), r4 = rng();
+    if (m < 0.12 || r1 > 0.35 + m * 0.5) continue;
+    const d = 26 + r2 * 150, r = 30 + m * 34 + r3 * 22;
+    mountains.push({ x: p.x + p.ox * d, y: p.y + p.oy * d, r, kind: 'mountain', variant: Math.floor(r4 * 6), rot: r4 * 6.28 });
+  }
+  return { pts, mountains };
+}
+// alles außerhalb der Grenze ist nicht bebaubar
+function fillOutside(grid, pts) {
+  const n = pts.length, xs = [];
+  for (let gy = 0; gy < GH; gy++) {
+    const y = (gy + 0.5) * CELL;
+    xs.length = 0;
+    for (let i = 0; i < n; i++) {
+      const a = pts[i], b = pts[(i + 1) % n];
+      if ((a.y <= y) !== (b.y <= y)) xs.push(a.x + (y - a.y) / (b.y - a.y) * (b.x - a.x));
+    }
+    xs.sort((p, q) => p - q);
+    let k = 0, inside = false;
+    for (let gx = 0; gx < GW; gx++) {
+      const x = (gx + 0.5) * CELL;
+      while (k < xs.length && xs[k] <= x) { inside = !inside; k++; }
+      if (!inside && grid[gy * GW + gx] === 0) grid[gy * GW + gx] = 3;
+    }
+  }
 }
 
 // Darf an dieser Stelle (Weltpixel) gebaut werden? (ohne andere Türme)
@@ -171,13 +294,19 @@ const C = {
 // ------------------------------------------------------------------ Spiel
 export class Game {
   constructor(opts) {
+    // Frontbau: Karte entsteht aus dem wachsenden Weg
+    if (opts.kachel) {
+      this.kstate = startState();
+      this.kachel = { ...opts.kachel, phase: 'choose', hand: null, picks: 2, round: 0, pending: null };
+      opts = { ...opts, mode: 'kachel', mapDef: kachelDef(this.kstate, opts.kachel.biome) };
+    }
     this.opts = opts;
     this.mode = opts.mode;
     this.endless = !!opts.endless;
     this.daily = opts.daily || null;
     this.progress = opts.progress;
     this.mission = opts.mission || null;
-    this.rules = makeRules(this.mode, { endless: this.endless, mods: this.daily?.mods, banned: this.daily?.banned, difficulty: opts.mission ? opts.mission.difficulty : opts.difficulty, mission: opts.mission });
+    this.rules = makeRules(this.mode, { endless: this.endless, mods: this.daily?.mods, banned: this.daily?.banned, difficulty: opts.mission ? opts.mission.difficulty : opts.difficulty, mission: opts.mission, fixedMittel: !!(opts.kachel && opts.kachel.daily) });
     this.difficulty = this.rules.difficulty;
     this.res = new Set(this.rules.research ? (opts.research || []) : []);
     this.mapDef = opts.mapDef;
@@ -185,7 +314,7 @@ export class Game {
     // lange Wege: mehr Zeit zwischen den Wellen, damit sich nicht zu viele Wellen stauen
     const longest = Math.max(...this.map.paths.map(p => p.total)) / TILE;
     this.rules.countdown = Math.round(this.rules.countdown * clamp(longest / 40, 1, 1.9));
-    this.seed = this.daily ? 'daily-' + this.daily.key : this.mission ? 'mission-' + this.mission.id : this.mapDef.id + '-' + this.mode;
+    this.seed = this.kachel ? 'kachel-' + this.kachel.seed : this.daily ? 'daily-' + this.daily.key : this.mission ? 'mission-' + this.mission.id : this.mapDef.id + '-' + this.mode;
     this.time = 0;
     this.state = 'playing';
     this.particles = new Particles(3500);
@@ -233,6 +362,7 @@ export class Game {
   toast(text, kind = '') { this.emit({ t: 'toast', text, kind }); }
   announce(title, sub = '', kind = '') { this.emit({ t: 'announce', title, sub, kind }); }
   tip(id) {
+    if (this.kachel) { if (id === 'build') id = 'kachel'; else if (id === 'start' || id === 'upgrade') return; }
     const p = this.progress;
     if (!p || !p.settings.tips || p.tips[id]) return;
     p.tips[id] = 1;
@@ -247,6 +377,77 @@ export class Game {
   }
   pan(x) { return (x / WORLD_W) * 1.4 - 0.7; }
   addShake(a) { this.shake = Math.min(18, this.shake + a); }
+
+  // ---------------------------------------------------------------- Frontbau (Karten)
+  kachelHand() {
+    const k = this.kachel;
+    if (!k || k.phase !== 'choose') return null;
+    if (!k.hand) k.hand = drawHand(k.seed, k.round, k.deck, this.kstate, this.towers);
+    return k.hand;
+  }
+  kachelPathPreview(i) {
+    const k = this.kachel, c = k && k.hand && k.hand[i];
+    if (!c || c.kind !== 'path') return null;
+    return pathCells(this.kstate, c.id, this.towers);
+  }
+  kachelPick(i) {
+    const k = this.kachel;
+    if (!k || k.phase !== 'choose' || !k.hand) return false;
+    const c = k.hand[i];
+    if (c.kind === 'path') {
+      const res = pathCells(this.kstate, c.id, this.towers);
+      if (!res) { this.toast('Dieses Wegstück passt hier nicht'); sfx.play('error'); return false; }
+      this.kstate.cells.push(...res.cells); this.kstate.dir = res.dir; this.kstate.version++;
+      if (this.kstate.cells.length >= 41) this.ach('kachelweg');
+      this.mapDef = kachelDef(this.kstate, k.biome);
+      this.map = buildMap(this.mapDef);
+      sfx.play('build');
+      this.toast(`Weg verlängert: ${this.kstate.cells.length - 1} Kacheln`, 'good');
+      this.kachelDone();
+      return true;
+    }
+    if (c.kind === 'special') {
+      const w = Math.max(1, this.wave);
+      if (c.id === 'credits') { const n = 100 + w * 18; this.addCredits(n); this.toast(`Nachschub: +${n} Credits`, 'gold'); }
+      if (c.id === 'orbital') { this.cooldowns.orbital = 0; this.energy = Math.min(this.energyMax(), this.energy + 50); this.toast('Orbitalschlag bereit', 'good'); }
+      if (c.id === 'kern') { const b = this.base; b.maxHp += 15; b.hp = b.maxHp; this.toast('Kern verstärkt und geheilt', 'good'); }
+      if (c.id === 'doppel') { k.picks += 1; this.toast('Doppelzug: noch eine Karte', 'gold'); }
+      sfx.play('upgrade');
+      this.kachelDone();
+      return true;
+    }
+    k.phase = 'place'; k.pending = c;
+    return 'place';
+  }
+  kachelPlace(x, y, tower) {
+    const k = this.kachel, c = k && k.pending;
+    if (!c) return false;
+    if (tower) {
+      if (tower.type !== c.id) { this.toast('Nur auf einen gleichen Turm legen'); sfx.play('error'); return false; }
+      const n = this.nextTiers(tower);
+      if (!n.length) { this.toast('Dieser Turm ist schon voll ausgebaut'); sfx.play('error'); return false; }
+      if (n.length === 1) this.upgrade(tower, n[0], true);
+      else { tower.freeVariant = true; this.toast('Zusammengelegt: wähle die Spezialisierung kostenlos', 'gold'); }
+      this.particles.burst(tower.x, tower.y, 30, ci(TOWERS[tower.type].color), 180, 0.7, 6);
+      this.kachelDone();
+      return tower;
+    }
+    if (!this.canBuild(x, y)) { sfx.play('error'); return false; }
+    this.credits += TOWERS[c.id].tiers[1].cost;
+    const t = this.build(c.id, x, y);
+    if (!t) return false;
+    t.spent = 0;
+    if (c.tier === '2') this.upgrade(t, '2', true);
+    this.kachelDone();
+    return t;
+  }
+  kachelCancel() { const k = this.kachel; if (k && k.phase === 'place') { k.phase = 'choose'; k.pending = null; } }
+  kachelDone() {
+    const k = this.kachel;
+    k.round++; k.picks--; k.hand = null; k.pending = null;
+    k.phase = k.picks > 0 ? 'choose' : 'ready';
+    this.emit({ t: 'cards' });
+  }
 
   // ---------------------------------------------------------------- Kommandant
   spawnHero(level = 1) {
@@ -311,7 +512,7 @@ export class Game {
   }
 
   // ---------------------------------------------------------------- Wellen
-  canCallWave() { return this.state === 'playing' && this.wave < this.totalWaves && (this.wave === 0 || this.countdown !== null); }
+  canCallWave() { return this.state === 'playing' && this.wave < this.totalWaves && (this.wave === 0 || this.countdown !== null) && !(this.kachel && (this.kachel.phase !== 'ready' || this.clearedUpTo < this.wave)); }
   earlyBonus() {
     if (this.wave === 0 || this.countdown === null) return 0;
     return Math.ceil(this.countdown * (1.5 + this.wave * 0.2));
@@ -548,11 +749,12 @@ export class Game {
     }
     return [];
   }
-  upgrade(t, tier) {
+  upgrade(t, tier, free = false) {
     if (!this.nextTiers(t).includes(tier)) return false;
-    const cost = TOWERS[t.type].tiers[tier].cost;
+    const cost = free ? 0 : TOWERS[t.type].tiers[tier].cost;
     if (this.credits < cost) { this.toast('Nicht genug Credits'); sfx.play('error'); return false; }
     this.credits -= cost; t.spent += cost;
+    t.freeVariant = false;
     t.tier = tier; t.spec = towerSpec(t.type, tier);
     t.beams.length = 0;
     t.maxHp = this.towerHp() * (1 + 0.15 * (tierLevel(tier) - 1)); t.hp = t.maxHp; t.offline = 0;
@@ -638,7 +840,7 @@ export class Game {
   }
   towerDmg(t, base) { return base * this.rules.towerDmgMul; }
   damageTower(t, amt) {
-    if (t.offline > 0) return;
+    if (t.offline > 0 || !this.rules.repair) return;
     t.lastHit = this.time;
     if (t.shield > 0) {
       const a = Math.min(t.shield, amt); t.shield -= a; amt -= a;
@@ -691,7 +893,7 @@ export class Game {
     p.active = true; p.kind = kind; p.x = x; p.y = y; p.target = target; p.tuid = target ? target.uid : 0;
     p.tx = target ? target.x : x; p.ty = target ? target.y : y; p.vx = 0; p.vy = 0; p.life = 3; p.src = null;
     p.dmg = 0; p.splash = 0; p.color = C.white; p.speed = 600; p.hitAir = true; p.hitGround = true; p.airMul = 1;
-    p.burn = null; p.stun = 0; p.cluster = 0; p.h = 0; p.trail = 0; p.ang = 0; p.size = 1; p.tower = null;
+    p.burn = null; p.stun = 0; p.cluster = 0; p.h = 0; p.trail = 0; p.ang = 0; p.size = 1; p.tower = null; p.toBase = false;
     p.z0 = 0; p.d0 = target ? Math.hypot(target.x - x, target.y - y) || 1 : 1;
     this.projectiles.push(p);
     return p;
@@ -1157,7 +1359,11 @@ export class Game {
       if (this.endless && this.wave >= 40) this.ach('endless40');
       if (this.progress) this.progress.stats.wavesTotal++;
       if (this.wave >= this.totalWaves) this.endGame(true);
-      else this.emit({ t: 'cleared' });
+      else {
+        if (this.kachel && this.wave >= 10) this.ach('kachel10');
+        if (this.kachel) { this.kachel.phase = 'choose'; this.kachel.picks = 1; this.kachel.hand = null; this.emit({ t: 'cards' }); }
+        this.emit({ t: 'cleared' });
+      }
     }
   }
 
@@ -1210,7 +1416,18 @@ export class Game {
         e.shootCd = def.shoot.cd;
         const R2 = (def.shoot.range * TILE) ** 2;
         let best = null, bd = R2;
-        for (const t of this.towers) { if (t.offline > 0) continue; const d = dist2(e.x, e.y, t.x, t.y); if (d < bd) { bd = d; best = t; } }
+        if (!this.rules.repair) {
+          // ohne Reparatur: Türme bleiben heil, geschossen wird nur auf den Kern (wenn er in Reichweite ist)
+          const b = this.base;
+          if (dist2(e.x, e.y, b.x, b.y) <= R2) {
+            const p = this.newProj('ebolt', e.x, e.y, null);
+            p.toBase = true; p.tx = b.x; p.ty = b.y; p.speed = e.boss ? 380 : 300; p.z0 = 10;
+            p.dmg = def.shoot.dmg * 0.5 * (1 + this.wave * 0.02); p.color = C.red; p.life = 2.5; p.size = e.boss ? 1.6 : 1;
+            sfx.play('ebolt', this.pan(e.x));
+          }
+          bd = -1;
+        }
+        if (bd >= 0) for (const t of this.towers) { if (t.offline > 0) continue; const d = dist2(e.x, e.y, t.x, t.y); if (d < bd) { bd = d; best = t; } }
         if (best && def.shoot.charge) { e.charge = def.shoot.charge; e.chargeTower = best; best = null; }
         if (best) {
           const p = this.newProj('ebolt', e.x, e.y, null);
@@ -1476,7 +1693,8 @@ export class Game {
           p.ang = Math.atan2(dy, dx);
           if (d <= step) {
             p.active = false;
-            if (tw && this.towers.includes(tw) && tw.id === p.tid) this.damageTower(tw, p.dmg);
+            if (p.toBase) this.damageBase(p.dmg);
+            else if (tw && this.towers.includes(tw) && tw.id === p.tid) this.damageTower(tw, p.dmg);
             P.burst(p.tx, p.ty, 5, C.red, 80, 0.25, 4, P_SPARK);
           } else { p.x += dx / d * step; p.y += dy / d * step; }
           if (p.life <= 0) p.active = false;
@@ -1611,6 +1829,7 @@ export class Game {
       if (this.mode === 'standard') this.ach('win_std');
       if (this.mode === 'expert') this.ach('win_exp');
       if (this.mode === 'daily') this.ach('daily');
+      if (this.kachel) this.ach('kachelwin');
     } else {
       sfx.play('bigboom'); sfx.play('defeat');
       const b = this.base;
@@ -1622,11 +1841,11 @@ export class Game {
   }
 
   // ---------------------------------------------------------------- Speichern zwischen den Wellen
-  canSave() { return this.state === 'playing' && this.wave > 0 && !this.spawnQueue.length && this.enemies.length === 0; }
+  canSave() { return !this.kachel && this.state === 'playing' && this.wave > 0 && !this.spawnQueue.length && this.enemies.length === 0; }
   serialize() {
     const b = this.base;
     return {
-      v: 1, mode: this.mode, difficulty: this.difficulty, endless: this.endless, daily: this.daily, mapDef: this.mapDef, research: [...this.res],
+      v: 2, mode: this.mode, difficulty: this.difficulty, endless: this.endless, daily: this.daily, mapDef: this.mapDef, research: [...this.res],
       wave: this.wave, cleared: this.clearedUpTo, credits: this.credits, energy: this.energy,
       base: { hp: b.hp, shield: b.shield, up: { ...b.up } },
       towers: this.towers.map(t => ({ type: t.type, tier: t.tier, x: t.x, y: t.y, mode: t.mode, spent: t.spent, kills: t.kills, dmg: t.dmg })),
@@ -1643,9 +1862,11 @@ export class Game {
     b.maxHp = g.rules.baseHp + (g.res.has('b2') ? 30 : 0); b.reduce = 0; b.shieldMax = 0;
     for (const k of Object.keys(s.base.up)) for (let i = 0; i < s.base.up[k]; i++) g.applyBaseUpgrade(k);
     b.hp = s.base.hp; b.shield = s.base.shield;
+    // Spielstände vor 1.0.6: Karte ist um 5 Felder je Seite gewachsen
+    const sh = (s.v || 1) < 2 && s.mapDef && s.mapDef.v !== 4 ? 5 * TILE : 0;
     for (const ts of s.towers) {
       g.credits = 1e9;
-      const t = ts.x !== undefined ? g.build(ts.type, ts.x, ts.y) : g.build(ts.type, (ts.tx + 0.5) * TILE, (ts.ty + 0.5) * TILE);
+      const t = ts.x !== undefined ? g.build(ts.type, ts.x + sh, ts.y + sh) : g.build(ts.type, (ts.tx + 0.5) * TILE + sh, (ts.ty + 0.5) * TILE + sh);
       if (!t) continue;
       if (ts.tier !== '1') { t.tier = ts.tier; t.spec = towerSpec(t.type, ts.tier); t.maxHp = g.towerHp() * (1 + 0.15 * (tierLevel(ts.tier) - 1)); t.hp = t.maxHp; }
       t.mode = ts.mode; t.spent = ts.spent; t.kills = ts.kills; t.dmg = ts.dmg; t.hasFired = true;

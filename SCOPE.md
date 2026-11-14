@@ -14,12 +14,14 @@ Sci-Fi-Tower-Defense im Browser. Forschungsstation **Aurelis** auf dem Planeten 
 - **Endlos**: Schalter auf jeder Karte, Wellen ohne Ende.
 - **Tägliche Herausforderung**: Experte-Regeln ohne Forschung, Karte + 2 Sonderregeln + Zufall fest pro Datum.
 - **Karten-Editor**: Weg, Startpunkt, Bauflächen setzen, im localStorage speichern, in allen Modi spielbar.
+- **Frontbau** (ab 1.0.6, unter „Modi“): Vor jeder Welle 3 Karten ziehen, eine nehmen – Wegstück (Weg wächst auf einem 2×2-Kachelraster vom Kern weg), Turm (kostenlos, oder auf gleichen Turm legen = kostenlos aufrüsten) oder Spezialkarte (Nachschub, Orbitalladung, Kernverstärkung, Doppelzug). Kartendeck vor dem Start wählbar, weitere Karten über Erfolge. **Tägliches Frontbau**: gleiche Landschaft, gleiches Deck und gleiche Kartenreihenfolge für alle pro Datum.
+- **Schaden** (ab 1.0.6): Wo es keine Reparatur gibt (Standard, Frontbau, Kampagne-Missionen im Standard-Modus), werden Türme nicht beschädigt – Belagerer und Bosse schießen dann aus der Nähe auf den Kern.
 
 ## Türme (je 3 Stufen, Stufe 3 = Wahl aus 2 Varianten, Experte-Forschung schaltet 3. Variante frei)
 Pulslaser · Plasmawerfer · Schienenkanone · EMP-Turm · Raketenwerfer · Bogenspule (Tesla) · Drohnenhangar · Schildgenerator · Radarmast (Scanner gegen Tarnung). Zielmodus: Erster / Stärkster / Nächster. Verkaufen.
 
 ## Gegner
-Schwärmer, Belagerer (Panzer, schießt auf Türme), Schildträger, Phantom (getarnt), Gleiter (Flieger), Teiler (zerfällt), Schwarmträger (Boss alle 10 Wellen). Experte: Elite-Varianten mit Sonderfähigkeiten.
+Schwärmer, Belagerer (Panzer, schießt auf den Kern bzw. im Advance-Modus auch auf Türme), Schildträger, Phantom (getarnt), Gleiter (Flieger), Teiler (zerfällt), Schwarmträger (Boss alle 10 Wellen). Experte: Elite-Varianten mit Sonderfähigkeiten.
 
 ## Basis (Reaktorkern)
 Lebenspunkte, eigene Kernkanone. Ausbau: Panzerung, Energieschild, Kernkanone, Energiefluss, Notfall-Pulswelle.
@@ -32,6 +34,7 @@ Orbitalschlag, Zeitverzerrung, Reparaturdrohnen, Pulswelle (nach Ausbau). Komman
 - Glow über vorgerenderte Sprites, Partikel in typisierten Arrays, Objekt-Pools, fester Simulationstakt (60 Hz) mit 1x/2x/3x.
 - WebAudio-Synthese für alle Sounds, Lautstärke + Stumm.
 - Maus, Tastatur, Touch; Querformat; localStorage für Einstellungen, Rekorde, Forschung, Erfolge, Karten, Spielstand.
+- Karten 30 × 24 Felder; natürliche Grenze aus Bergen (aufrecht gezeichnet) und Schluchten (in der Bodenebene) mit unregelmäßigem Rand, Durchgänge an Wegen und Flüssen; Umgebung außerhalb als eigene Ebene.
 
 ## Dateien
 ```
@@ -40,6 +43,9 @@ css/style.css       Neon-Oberfläche, responsive
 js/main.js          Start, Hauptschleife, Bildschirme
 js/data.js          Türme, Gegner, Karten, Ausbau, Forschung, Erfolge
 js/waves.js         Wellen-Generator, Tagesregeln
+js/kachel.js        Frontbau: Wegstücke, Karten ziehen, Deck
+js/terrain.js       Boden, Wege, Grenze (Berge/Schluchten), Umgebung
+js/rank.js          Rangliste
 js/game.js          Simulation
 js/render.js        Zeichnen, Sternenhimmel, Effekte
 js/sprites.js       vorgerenderte Grafiken, Icons

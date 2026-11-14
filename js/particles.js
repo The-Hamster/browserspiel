@@ -1,5 +1,9 @@
 // Partikelsystem mit typisierten Arrays (kein Müll für den Garbage Collector)
-export const P_GLOW = 0, P_SPARK = 1, P_SMOKE = 2, P_DEBRIS = 3, P_HEAT = 4;
+export const P_GLOW = 0;
+export const P_SPARK = 1;
+export const P_SMOKE = 2;
+export const P_DEBRIS = 3;
+export const P_HEAT = 4;
 
 export class Particles {
   constructor(max = 3000) {
