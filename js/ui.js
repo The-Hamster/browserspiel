@@ -31,8 +31,8 @@ export const ICON = {
 const ABIL_ICON = { orbital: ICON.orbital, warp: ICON.warp, repair: ICON.repair, pulse: ICON.pulse };
 
 const TIPS = {
-  build: ['Willkommen, Kommandant!', 'Wähle rechts einen Turm und tippe auf eine leuchtende Baufläche neben dem Weg. Oder tippe zuerst die Fläche an und dann den Turm.'],
-  start: ['Bereit?', 'Starte die erste Welle oben mit „Welle starten“. Später kommen die Wellen von selbst – früher starten bringt Bonus-Credits.'],
+  build: ['Willkommen, Kommandant!', 'Wähle unten einen Turm und tippe auf einen freien Platz neben dem Weg. Oder tippe zuerst den Platz an und dann den Turm.'],
+  start: ['Bereit?', 'Starte die erste Welle oben mit „Welle starten“. Später kommen die Wellen von selbst (auf Leicht nur per Knopf) – früher starten bringt Bonus-Credits.'],
   speed: ['Tempo', 'Oben rechts kannst du auf 2x oder 3x beschleunigen oder pausieren. Abschüsse bringen Credits für neue Türme.'],
   upgrade: ['Aufrüsten', 'Tippe einen gebauten Turm an: Dort rüstest du ihn auf, verkaufst ihn oder wählst sein Ziel. Ab Stufe 3 wählst du eine Spezialisierung.'],
   base: ['Der Reaktorkern', 'Tippe auf den Kern, um Panzerung, Energieschild, Kernkanone, Energiefluss und die Notfall-Pulswelle auszubauen.'],
@@ -40,7 +40,7 @@ const TIPS = {
   flyer: ['Gleiter', 'Flieger ignorieren den Weg und fliegen direkt zum Kern. Plasmawerfer treffen sie nicht – Raketenwerfer sind doppelt so stark.'],
   shield: ['Schildträger', 'Ihr Energieschild schluckt Schaden. Der EMP-Turm zerstört Schilde besonders schnell.'],
   phantom: ['Getarnte Phantome', 'Phantome sind unsichtbar. Nur ein Radarmast (oder der Kern aus nächster Nähe) macht sie für deine Türme sichtbar.'],
-  abilities: ['Spezialfähigkeiten', 'Links findest du Fähigkeiten. Sie kosten Energie und brauchen danach eine Pause. Orbitalschlag: Knopf antippen (Taste Q), dann ein Ziel auf der Karte wählen.'],
+  abilities: ['Spezialfähigkeiten', 'Unten links findest du Fähigkeiten. Sie kosten Energie und brauchen danach eine Pause. Orbitalschlag: Knopf antippen (Taste Q), dann ein Ziel auf der Karte wählen.'],
   boss: ['Schwarmträger!', 'Ein Mutterschiff: riesig, mit Schild, setzt Schwärmer ab und beschießt Türme. Zeit für Orbitalschlag und Zeitverzerrung!'],
   basehit: ['Kern getroffen', 'Gegner, die den Kern erreichen, beschädigen ihn. Baue mehr Türme oder verstärke den Kern selbst.'],
   elite: ['Elite-Gegner', 'Gegner mit goldenem Ring sind Elite: zäher und mit Sonderfähigkeiten.'],
