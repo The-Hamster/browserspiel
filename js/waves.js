@@ -1,6 +1,6 @@
 // Wellen-Generator und Regeln je Modus
 import { ENEMIES, ENEMY_UNLOCK, DAILY_MODS, MAPS, TOWER_ORDER } from './data.js';
-import { mulberry32, hashString, todayKey, clamp } from './util.js';
+import { mulberry32, hashString, todayKey, weekKey, clamp } from './util.js';
 
 export const DIFFICULTIES = {
   leicht:  { name: 'Leicht',  hpMul: 0.6,  speedMul: 0.95, startCredits: 500, baseHp: 150, bossMul: 0.6, countdown: 30, manual: true,  scoreMul: 0.5,  desc: 'Viel Zeit zum Bauen – Wellen starten nur auf Knopfdruck.' },
@@ -11,23 +11,24 @@ export const DIFFICULTIES = {
 export const DIFF_ORDER = ['leicht', 'mittel', 'schwer', 'experte'];
 
 export function makeRules(mode, opts = {}) {
-  const d = DIFFICULTIES[(mode === 'daily' || opts.fixedMittel) ? 'mittel' : (opts.difficulty || 'mittel')] || DIFFICULTIES.mittel;
+  const fixed = opts.weekly ? 'schwer' : (mode === 'daily' || opts.fixedMittel) ? 'mittel' : null;
+  const d = DIFFICULTIES[fixed || opts.difficulty || 'mittel'] || DIFFICULTIES.mittel;
   const r = {
-    mode, difficulty: (mode === 'daily' || opts.fixedMittel) ? 'mittel' : (opts.difficulty || 'mittel'),
+    mode, difficulty: fixed || opts.difficulty || 'mittel',
     hpMul: d.hpMul, speedMul: d.speedMul, startCredits: d.startCredits, baseHp: d.baseHp, bossMul: d.bossMul, manual: d.manual, scoreMul: d.scoreMul,
     elite: false, eliteMul: 1, eliteRewardMul: 1,
     events: false, eventEvery: 0, hero: false, research: false, totalWaves: 30, countdown: d.countdown,
     rewardMul: 1, countMul: 1, armorAdd: 0, towerDmgMul: 1, banned: [], mods: [], tutorial: mode === 'standard',
   };
   // Frontbau: Wellen starten nur auf Knopfdruck (zuerst Karte wählen)
-  if (mode === 'kachel') { r.manual = true; r.tutorial = false; r.hpMul *= 1.15; r.startCredits = Math.round(r.startCredits * 0.6); }
+  if (mode === 'kachel') { r.manual = true; r.tutorial = false; r.hpMul *= 1.0; r.startCredits = Math.round(r.startCredits * 0.6); }
   // Advance (intern "expert") und Tägliche Herausforderung: Elite, Kommandant, Ereignisse
   if (mode === 'expert' || mode === 'daily') {
     Object.assign(r, { hpMul: r.hpMul * 1.1, speedMul: r.speedMul * 1.04, elite: true, events: true, hero: true, countdown: Math.max(14, r.countdown - 3), rewardMul: 0.95 });
     r.research = mode === 'expert';
   }
   if (mode === 'daily') {
-    r.totalWaves = 20;
+    r.totalWaves = opts.weekly ? 25 : 20;
     for (const id of opts.mods || []) {
       r.mods.push(id);
       if (id === 'swarmy') { r.countMul *= 1.5; r.hpMul *= 0.7; }
@@ -55,14 +56,14 @@ export function makeRules(mode, opts = {}) {
   return r;
 }
 
-export function dailyConfig(date = new Date()) {
-  const key = todayKey(date);
+export function dailyConfig(date = new Date(), weekly = false) {
+  const key = weekly ? weekKey(date) : todayKey(date);
   const seed = hashString('kernwacht-daily-' + key);
   const rng = mulberry32(seed);
   const map = MAPS[Math.floor(rng() * MAPS.length)];
   const pool = DAILY_MODS.map(m => m.id);
   const mods = [];
-  while (mods.length < 2) {
+  while (mods.length < (weekly ? 3 : 2)) {
     const m = pool[Math.floor(rng() * pool.length)];
     if (!mods.includes(m)) mods.push(m);
   }
@@ -74,7 +75,7 @@ export function dailyConfig(date = new Date()) {
       if (!banned.includes(t)) banned.push(t);
     }
   }
-  return { key, seed, mapId: map.id, mods, banned };
+  return { key, seed, mapId: map.id, mods, banned, weekly };
 }
 
 export const hpScale = (w) => (1 + 0.1 * (w - 1) + 0.0088 * (w - 1) * (w - 1)) * (w > 30 ? Math.pow(1.05, w - 30) : 1);

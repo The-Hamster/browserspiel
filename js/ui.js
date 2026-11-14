@@ -12,8 +12,8 @@ import { drawThumbTerrain } from './terrain.js';
 import { DIFFICULTIES, DIFF_ORDER } from './waves.js';
 import { submitScore, fetchScores, localScores } from './rank.js';
 import { towerDims } from './sprites.js';
-import { fmt, fmtTime, todayKey, el, clamp, rgba, hashString } from './util.js';
-import { PATH_CARDS, SPECIAL_CARDS, TOWER_UNLOCK, unlockedCards, cardTitle, cardDesc } from './kachel.js';
+import { fmt, fmtTime, todayKey, weekKey, el, clamp, rgba, hashString } from './util.js';
+import { PATH_CARDS, SPECIAL_CARDS, TOWER_UNLOCK, RARITY, KRANGE, unlockedCards, cardTitle, cardDesc, cardRarity } from './kachel.js';
 import { BIOME_ORDER } from './data.js';
 
 const svg = (p, extra = '') => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" ${extra}>${p}</svg>`;
@@ -45,8 +45,12 @@ export function toggleFullscreen() {
 const ABIL_ICON = { orbital: ICON.orbital, warp: ICON.warp, repair: ICON.repair, pulse: ICON.pulse };
 
 const TIPS = {
+  kintro1: ['Frontbau 1/4: Erster Turm', 'Unten liegen drei Turmkarten. Nimm eine und tippe auf ein freies Kästchen. Die farbigen Kästchen zeigen, wie weit der Turm schießt.'],
+  kintro3: ['Frontbau 2/4: Wegstücke', 'Wegstücke verlängern den Weg vom Eingang aus. Fahr mit der Maus über die Karte (am Handy einmal antippen), um zu sehen, wo das Stück hinkommt. Ein längerer Weg heißt: länger im Feuer.'],
+  kintro2: ['Frontbau 3/4: Los geht’s', 'Starte jetzt oben die Welle. Nach jeder geschafften Welle bekommst du neue Karten.'],
+  kintro4: ['Frontbau 4/4: Tipps', 'Gleiche Türme nebeneinander machen je +10 % Schaden. Lege eine Turmkarte auf einen gleichen Turm, um ihn kostenlos aufzurüsten. Gefallen dir die Karten nicht, kannst du einmal pro Runde neu ziehen.'],
   kachel: ['Frontbau', 'Unten liegen drei Karten – nimm eine: ein Wegstück (der Weg der Gegner wird länger), einen Turm (kostenlos auf einen freien Platz oder auf einen gleichen Turm zum Aufrüsten) oder eine Spezialkarte. Danach startest du oben die Welle.'],
-  build: ['Willkommen, Kommandant!', 'Wähle unten einen Turm und tippe auf einen freien Platz neben dem Weg. Oder tippe zuerst den Platz an und dann den Turm.'],
+  build: ['Willkommen, Kommandant!', 'Wähle unten einen Turm und tippe dann auf einen freien Platz neben dem Weg. Tippen auf eine leere Stelle hebt die Auswahl auf, Ziehen verschiebt die Karte.'],
   start: ['Bereit?', 'Starte die erste Welle oben mit „Welle starten“. Später kommen die Wellen von selbst (auf Leicht nur per Knopf) – früher starten bringt Bonus-Credits.'],
   speed: ['Tempo', 'Oben rechts kannst du auf 2x oder 3x beschleunigen oder pausieren. Abschüsse bringen Credits für neue Türme.'],
   upgrade: ['Aufrüsten', 'Tippe einen gebauten Turm an: Dort rüstest du ihn auf, verkaufst ihn oder wählst sein Ziel. Ab Stufe 3 wählst du eine Spezialisierung.'],
@@ -65,9 +69,10 @@ const TIPS = {
 };
 
 const MODE_NAME = { standard: 'Standard', expert: 'Advance', daily: 'Tägliche Herausforderung', kachel: 'Frontbau' };
+const modeName = (g) => g.daily && g.daily.weekly ? 'Wochen-Herausforderung' : MODE_NAME[g.mode];
 
 // kleines Bild eines Wegstücks für die Karte
-function pathSvg(moves) {
+function pathSvg(moves, tile, branch) {
   const D = [[1, 0], [0, 1], [-1, 0], [0, -1]];
   let x = 0, y = 0, d = 0;
   const pts = [[x, y]];
@@ -77,17 +82,21 @@ function pathSvg(moves) {
   const span = Math.max(mxx - mnx, mxy - mny, 1), k = 44 / span, ox = 32 - (mnx + mxx) / 2 * k, oy = 32 - (mny + mxy) / 2 * k;
   const pl = pts.map(([a, b]) => `${(ox + a * k).toFixed(1)},${(oy + b * k).toFixed(1)}`).join(' ');
   const [ex, ey] = pts[pts.length - 1];
-  return `<svg viewBox="0 0 64 64"><polyline points="${pl}" fill="none" stroke="#2a2218" stroke-width="15" stroke-linecap="round" stroke-linejoin="round"/><polyline points="${pl}" fill="none" stroke="#9c7c58" stroke-width="10" stroke-linecap="round" stroke-linejoin="round"/><polyline points="${pl}" fill="none" stroke="#ffd23e" stroke-width="1.6" stroke-dasharray="3 4" stroke-linecap="round"/><circle cx="${(ox + ex * k).toFixed(1)}" cy="${(oy + ey * k).toFixed(1)}" r="5" fill="#ff3d6e"/></svg>`;
+  const road = tile === 'sumpf' ? '#4f7a3c' : tile === 'glut' ? '#ff6b3d' : '#9c7c58';
+  const br = branch ? `<polyline points="${(ox + pts[0][0] * k).toFixed(1)},${(oy + pts[0][1] * k).toFixed(1)} ${(ox + pts[0][0] * k).toFixed(1)},${(oy + pts[0][1] * k - 26).toFixed(1)}" fill="none" stroke="#9c7c58" stroke-width="10" stroke-linecap="round"/><circle cx="${(ox + pts[0][0] * k).toFixed(1)}" cy="${(oy + pts[0][1] * k - 26).toFixed(1)}" r="5" fill="#ff3d6e"/>` : '';
+  return `<svg viewBox="0 0 64 64"><polyline points="${pl}" fill="none" stroke="#2a2218" stroke-width="15" stroke-linecap="round" stroke-linejoin="round"/>${br}<polyline points="${pl}" fill="none" stroke="${road}" stroke-width="10" stroke-linecap="round" stroke-linejoin="round"/><polyline points="${pl}" fill="none" stroke="#ffd23e" stroke-width="1.6" stroke-dasharray="3 4" stroke-linecap="round"/><circle cx="${(ox + ex * k).toFixed(1)}" cy="${(oy + ey * k).toFixed(1)}" r="5" fill="#ff3d6e"/></svg>`;
 }
 const SPECIAL_SVG = {
   credits: '<svg viewBox="0 0 64 64"><circle cx="32" cy="32" r="20" fill="#3a2e10" stroke="#f5c542" stroke-width="4"/><path d="M38 24a10 10 0 1 0 0 16" fill="none" stroke="#f5c542" stroke-width="4" stroke-linecap="round"/></svg>',
   orbital: '<svg viewBox="0 0 64 64"><circle cx="32" cy="34" r="16" fill="none" stroke="#ff6b3d" stroke-width="3"/><path d="M32 6v22M24 20l8 8 8-8" fill="none" stroke="#ffcf3a" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/><circle cx="32" cy="34" r="5" fill="#ff6b3d"/></svg>',
   kern: '<svg viewBox="0 0 64 64"><circle cx="32" cy="32" r="12" fill="#36f1ff"/><circle cx="32" cy="32" r="21" fill="none" stroke="#36f1ff" stroke-width="3" opacity=".6"/><path d="M32 22v20M22 32h20" stroke="#062a33" stroke-width="5" stroke-linecap="round"/></svg>',
+  risiko: '<svg viewBox="0 0 64 64"><path d="M32 8 58 54H6Z" fill="#3a1a12" stroke="#ff6b3d" stroke-width="4" stroke-linejoin="round"/><path d="M32 24v14" stroke="#ffcf3a" stroke-width="5" stroke-linecap="round"/><circle cx="32" cy="46" r="3" fill="#ffcf3a"/></svg>',
+  kristall: '<svg viewBox="0 0 64 64"><path d="M32 6 44 30 32 58 20 30Z" fill="#7a4ab8" stroke="#e7c8ff" stroke-width="2.5" stroke-linejoin="round"/><path d="M32 6v52M20 30h24" stroke="#f0d8ff" stroke-width="1.5" opacity=".7"/><path d="M14 40 20 30M50 40 44 30" stroke="#d18cff" stroke-width="3" stroke-linecap="round"/></svg>',
   doppel: '<svg viewBox="0 0 64 64"><rect x="12" y="16" width="24" height="32" rx="5" fill="#1d2a44" stroke="#a78bfa" stroke-width="3"/><rect x="28" y="12" width="24" height="32" rx="5" fill="#26365a" stroke="#c9a7ff" stroke-width="3"/><text x="40" y="34" font-size="13" font-weight="700" fill="#fff" text-anchor="middle">×2</text></svg>',
 };
 const CARD_COLOR = { path: '#ffd23e', tower: '#3b82f6', special: '#a78bfa' };
 function cardIcon(c) {
-  if (c.kind === 'path') return pathSvg(PATH_CARDS[c.id].moves);
+  if (c.kind === 'path') { const P = PATH_CARDS[c.id]; return pathSvg(P.branch ? ['F', 'F'] : P.moves, P.tile, P.branch); }
   if (c.kind === 'tower') return `<img alt="" src="${towerIcon(c.id, c.tier)}">`;
   return SPECIAL_SVG[c.id] || '';
 }
@@ -106,7 +115,7 @@ export class UI {
     this.$ = (id) => document.getElementById(id);
     this.mode = 'menu';
     this.game = null; this.paused = false; this.speed = 1;
-    this.selected = null; this.buildType = null; this.pendingPos = null; this.ghost = null; this.targeting = null; this.heroSelected = false;
+    this.selected = null; this.buildType = null; this.ghost = null; this.targeting = null; this.heroSelected = false;
     this.mouseWorld = null; this.mouseNX = 0; this.mouseNY = 0;
     this.cache = new Map();
     this.panelTimer = 0; this.lastPreviewWave = -1;
@@ -295,6 +304,8 @@ export class UI {
     return n * 8 / TILE;
   }
   setGhost(w) {
+    const g = this.game;
+    if (w && g && g.kachel && g.kachel.phase === 'place') w = g.kSnap(w.x, w.y);
     this.ghost = w ? { ...w } : null;
     this.coverage = w && this.buildType ? this.coverageAt(w.x, w.y, this.buildType) : undefined;
   }
@@ -332,15 +343,6 @@ export class UI {
     if (g.rules.banned.includes(type)) { this.toast('Diese Turmart ist heute gesperrt'); sfx.play('error'); return; }
     if (g.kachel) { this.toast('Im Frontbau kommen Türme über Karten'); return; }
     this.targeting = null; this.heroSelected = false;
-    if (this.pendingPos) {
-      const p = this.pendingPos; this.pendingPos = null;
-      const t = g.build(type, p.x, p.y);
-      this.noteBuilt(t);
-      this.buildType = null; this.setGhost(null);
-      if (t) this.select({ kind: 'tower', tower: t });
-      this.refreshBuildSel();
-      return;
-    }
     this.buildType = this.buildType === type ? null : type;
     if (!this.buildType) this.ghost = null;
     this.select(null);
@@ -354,8 +356,7 @@ export class UI {
   showBuildInfo(type) {
     const box = this.$('buildinfo');
     if (!type) {
-      if (this.pendingPos) { box.innerHTML = '<h4>Bauplatz gewählt</h4><p>Tippe unten auf einen Turm, um ihn hier zu bauen.</p>'; box.classList.remove('hidden'); }
-      else box.classList.add('hidden');
+      box.classList.add('hidden');
       return;
     }
     const T = TOWERS[type], sp = towerSpec(type, '1');
@@ -387,7 +388,7 @@ export class UI {
   // ---------------------------------------------------------------- Auswahl & Panel
   select(sel) {
     this.selected = sel;
-    if (sel) { this.pendingPos = null; if (!this.buildType) this.ghost = null; }
+    if (sel) { if (!this.buildType) this.ghost = null; }
     this.renderPanel();
   }
   renderPanel() {
@@ -532,7 +533,7 @@ export class UI {
       }
       down = { x: e.clientX, y: e.clientY, lx: e.clientX, ly: e.clientY, t: performance.now(), type: e.pointerType, pan: false, btn: e.button };
       this.updateMouse(e);
-      if (e.pointerType !== 'mouse' && this.buildType) this.setGhost(this.mouseWorld);
+      if (e.pointerType !== 'mouse' && (this.buildType || this.game?.kachel?.phase === 'place')) this.setGhost(this.mouseWorld);
     });
     cv.addEventListener('pointermove', (e) => {
       this.mouseNX = e.clientX / window.innerWidth - 0.5; this.mouseNY = e.clientY / window.innerHeight - 0.5;
@@ -553,7 +554,7 @@ export class UI {
         if (down.pan) { this.r.panBy(e.clientX - down.lx, e.clientY - down.ly); this.placePanel(); }
         down.lx = e.clientX; down.ly = e.clientY;
       }
-      if (e.pointerType === 'mouse' && this.buildType) this.setGhost(this.mouseWorld);
+      if (e.pointerType === 'mouse' && (this.buildType || this.game?.kachel?.phase === 'place')) this.setGhost(this.mouseWorld);
     });
     const up = (e) => {
       pts.delete(e.pointerId);
@@ -574,7 +575,7 @@ export class UI {
       this.r.lastZoomAt = performance.now();
       this.placePanel();
     }, { passive: false });
-    cv.addEventListener('pointerleave', (e) => { if (e.pointerType === 'mouse' && this.mode === 'game' && !this.pendingPos) this.setGhost(null); });
+    cv.addEventListener('pointerleave', (e) => { if (e.pointerType === 'mouse' && this.mode === 'game') this.setGhost(null); });
     cv.addEventListener('contextmenu', (e) => { e.preventDefault(); if (this.mode === 'game' && !(down && down.pan)) this.cancel(); });
     document.addEventListener('contextmenu', (e) => e.preventDefault());
     window.addEventListener('keydown', (e) => this.key(e));
@@ -590,7 +591,7 @@ export class UI {
   }
   cancel() {
     if (this.game && this.game.kachel && this.game.kachel.phase === 'place') { this.game.kachelCancel(); this._handSig = null; }
-    this.targeting = null; this.buildType = null; this.pendingPos = null; this.ghost = null; this.heroSelected = false;
+    this.targeting = null; this.buildType = null; this.ghost = null; this.heroSelected = false;
     this.select(null); this.refreshBuildSel();
   }
   tap(w, e) {
@@ -601,10 +602,17 @@ export class UI {
       return;
     }
     const tower = (e && e.clientX !== undefined ? this.pickTower(e.clientX, e.clientY) : null) || g.towerNear(w.x, w.y, 30);
+    // Frontbau: Karte auf ein Kästchen legen
     if (g.kachel && g.kachel.phase === 'place') {
-      const t = tower && tower.type === g.kachel.pending.id ? g.kachelPlace(0, 0, tower) : g.canBuild(w.x, w.y) ? g.kachelPlace(w.x, w.y, null) : null;
-      if (t) { this.buildType = null; this.setGhost(null); this.select(null); this.refreshBuildSel(); this._handSig = null; }
-      else { if (tower) g.kachelPlace(0, 0, tower); else { this.toast('Hier ist kein Platz – wähle eine freie Stelle neben dem Weg'); sfx.play('error'); } this.setGhost(w); }
+      const c = g.kachel.pending;
+      let t = null;
+      if (tower && c.kind === 'tower') t = g.kachelPlace(0, 0, tower);
+      else if (g.canBuild(w.x, w.y)) t = g.kachelPlace(w.x, w.y, null);
+      else { this.toast(tower ? 'Hier steht schon ein Turm' : 'Dieses Kästchen ist belegt – wähle ein freies'); sfx.play('error'); this.setGhost(w); }
+      if (t) {
+        this.buildType = null; this.setGhost(null); this.refreshBuildSel(); this._handSig = null;
+        this.select(t !== true && t.freeVariant ? { kind: 'tower', tower: t } : null);
+      }
       this.drainEvents();
       return;
     }
@@ -624,23 +632,17 @@ export class UI {
         return;
       }
       if (tower) { this.buildType = null; this.ghost = null; this.refreshBuildSel(); this.select({ kind: 'tower', tower }); return; }
+      // kein Platz: nur ein Hinweis, die Auswahl bleibt
       this.setGhost(w);
       this.toast('Hier ist kein Platz – wähle eine freie Stelle neben dem Weg');
       sfx.play('error');
       return;
     }
-    if (tower) { this.pendingPos = null; this.ghost = null; this.select(this.selected?.tower === tower ? null : { kind: 'tower', tower }); this.showBuildInfo(null); return; }
+    if (tower) { this.ghost = null; this.select(this.selected?.tower === tower ? null : { kind: 'tower', tower }); return; }
     if (h && h.dead <= 0 && Math.hypot(w.x - h.x, w.y - h.y) < 26) { this.select(null); this.heroSelected = true; return; }
     if (Math.hypot(w.x - g.base.x, w.y - g.base.y) < 60 || (e && Math.abs(e.clientX - this.r.worldToScreen(g.base.x, g.base.y).x) < 30 * this.r.scale && e.clientY < this.r.worldToScreen(g.base.x, g.base.y).y && e.clientY > this.r.worldToScreen(g.base.x, g.base.y, 60).y)) { this.select(this.selected?.kind === 'base' ? null : { kind: 'base' }); return; }
-    if (g.canBuild(w.x, w.y)) {
-      this.select(null);
-      this.pendingPos = this.pendingPos && Math.hypot(this.pendingPos.x - w.x, this.pendingPos.y - w.y) < 20 ? null : { ...w };
-      this.ghost = this.pendingPos;
-      this.showBuildInfo(null);
-      return;
-    }
-    this.pendingPos = null; this.ghost = null; this.showBuildInfo(null);
-    this.select(null);
+    // leere Stelle: wie Rechtsklick – Auswahl aufheben
+    this.cancel();
   }
   key(e) {
     if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA')) return;
@@ -653,7 +655,7 @@ export class UI {
     const overlay = document.querySelector('#scrPause.show, #scrEnd.show, #scrSettings.show, #scrConfirm.show');
     if (k === 'Escape') {
       if (overlay) { if (document.querySelector('#scrPause.show')) this.resumeFromPause(); return; }
-      if (this.targeting || this.buildType || this.selected || this.heroSelected || this.pendingPos) this.cancel();
+      if (this.targeting || this.buildType || this.selected || this.heroSelected || this.game?.kachel?.phase === 'place') this.cancel();
       else this.openPause();
       return;
     }
@@ -713,8 +715,9 @@ export class UI {
     this.game = g; this.mode = 'game';
     this.lastOpts = g.kachel ? { kachel: g.opts.kachel, difficulty: g.difficulty } : { mode: g.mode, mapDef: g.mapDef, endless: g.endless, daily: g.daily, difficulty: g.difficulty, mission: g.mission };
     this.$('hud').classList.toggle('kmode', !!g.kachel);
+    document.body.classList.toggle('cb', !!this.settings.colorblind);
     this._handSig = null; this.kPreview = null;
-    this.$('hDiff').textContent = g.mission ? 'Kampagne · ' + g.mission.name : MODE_NAME[g.mode] + ' · ' + DIFFICULTIES[g.difficulty].name;
+    this.$('hDiff').textContent = g.mission ? 'Kampagne · ' + g.mission.name : modeName(g) + ' · ' + DIFFICULTIES[g.difficulty].name;
     this.homeView();
     sfx.setTheme(g.map.def.biome || 'kristall');
     this.hideScreens();
@@ -739,6 +742,7 @@ export class UI {
     this.$('panel').classList.add('hidden');
     this.$('buildinfo').classList.add('hidden');
     this.$('cardhand').classList.add('hidden'); this._handSig = null; this.kPreview = null;
+    this.$('lexcard').classList.add('hidden'); this.$('radio').classList.add('hidden');
     this.layout();
     this.showMenu();
   }
@@ -752,7 +756,7 @@ export class UI {
     this.togglePause(true);
     const s = this.$('scrPause');
     s.innerHTML = '';
-    const box = el('div', 'box card', `<h2 class="endt" style="font-size:26px">PAUSE</h2><p class="endsub" style="margin-bottom:14px">${MODE_NAME[this.game.mode]} · ${DIFFICULTIES[this.game.difficulty].name} · ${this.game.map.name} · Welle ${this.game.wave}</p>`);
+    const box = el('div', 'box card', `<h2 class="endt" style="font-size:26px">PAUSE</h2><p class="endsub" style="margin-bottom:14px">${modeName(this.game)} · ${DIFFICULTIES[this.game.difficulty].name} · ${this.game.map.name} · Welle ${this.game.wave}</p>`);
     box.style.width = 'min(420px,100%)';
     const m = el('nav', 'tmenu pmenu');
     m.appendChild(this.btn('Weiterspielen', 'titem accent', () => this.resumeFromPause()));
@@ -868,7 +872,7 @@ export class UI {
     for (const [k, v] of Object.entries(st.dmgByType)) if (v > bestDmg) { bestDmg = v; bestType = k; }
     const box = el('div', 'box card');
     box.innerHTML = `<h1 class="endt ${won ? 'win' : 'lose'}">${won ? 'STATION GERETTET' : 'KERN ZERSTÖRT'}</h1>
-      <p style="text-align:center;color:var(--dim);margin:6px 0 0">${MODE_NAME[g.mode]} · ${DIFFICULTIES[g.difficulty].name} · ${g.map.name}${g.endless ? ' · Endlos' : ''}</p>
+      <p style="text-align:center;color:var(--dim);margin:6px 0 0">${modeName(g)} · ${DIFFICULTIES[g.difficulty].name} · ${g.map.name}${g.endless ? ' · Endlos' : ''}</p>
       <div class="endstats">
         <div class="hl"><span>Punkte${info.record ? ' · neuer Rekord!' : ''}</span><b>${fmt(info.score)}</b></div>
         <div><span>Wellen geschafft</span><b>${g.clearedUpTo}${g.totalWaves !== Infinity ? ' / ' + g.totalWaves : ''}</b></div>
@@ -884,6 +888,17 @@ export class UI {
         ${g.mission ? `<div class="hl"><span>Mission</span><b>${won ? '★'.repeat(info.stars) + '☆'.repeat(3 - info.stars) : 'nicht geschafft'}</b></div>` : ''}
         <div><span>Highscore</span><b>${fmt(store.data.highscore)}</b></div>
       </div>`;
+    // Auswertung: Schaden je Turmart als Balken
+    const dmg = Object.entries(st.dmgByType).filter(([k, v]) => TOWERS[k] && v > 0).sort((a, b) => b[1] - a[1]);
+    if (dmg.length) {
+      const total = dmg.reduce((a, [, v]) => a + v, 0), max = dmg[0][1];
+      const chart = el('div', 'dmgchart', '<div class="sectlabel2">Schaden je Turmart</div>');
+      for (const [k, v] of dmg) {
+        const n = g.towers.filter(t => t.type === k).length;
+        chart.appendChild(el('div', 'dbar', `<img alt="" src="${towerIcon(k)}"><span class="dn">${TOWERS[k].name}<small>${n} ${n === 1 ? "Turm" : "Türme"}</small></span><div class="dtrack"><div style="width:${(v / max * 100).toFixed(1)}%;background:${TOWERS[k].color}"></div></div><b>${fmt(Math.round(v))}</b><small class="dp">${Math.round(v / total * 100)} %</small>`));
+      }
+      box.appendChild(chart);
+    }
     const r = el('div', 'rowbtns');
     if (won && !g.endless && g.mode !== 'daily') r.appendChild(this.btn('Endlos weiterspielen', 'btn gold', () => {
       g.state = 'playing'; g.endless = true; g.totalWaves = Infinity; g.rules.totalWaves = Infinity;
@@ -918,12 +933,12 @@ export class UI {
     x.font = '600 34px system-ui, sans-serif'; x.fillStyle = won ? '#a7f3d0' : '#fecdd3';
     x.fillText(won ? 'Station gerettet' : 'Kern zerstört', W / 2, 190);
     x.font = '400 26px system-ui, sans-serif'; x.fillStyle = '#c3d0e3';
-    x.fillText(`${g.mission ? 'Kampagne · ' + g.mission.name : MODE_NAME[g.mode] + ' · ' + DIFFICULTIES[g.difficulty].name} · ${g.map.name}`, W / 2, 240);
+    x.fillText(`${g.mission ? 'Kampagne · ' + g.mission.name : modeName(g) + ' · ' + DIFFICULTIES[g.difficulty].name} · ${g.map.name}`, W / 2, 240);
     x.font = '700 92px ui-monospace, monospace'; x.fillStyle = '#f5c542';
     x.fillText(fmt(info.score), W / 2, 420);
     x.font = '400 26px system-ui, sans-serif'; x.fillStyle = '#c3d0e3';
     x.fillText(`Welle ${g.clearedUpTo} · ${fmt(g.stats.kills)} Abschüsse · Version ${VERSION}`, W / 2, 480);
-    const text = `Kernwacht: ${fmt(info.score)} Punkte auf ${g.map.name} (${g.mission ? 'Kampagne' : MODE_NAME[g.mode] + ', ' + DIFFICULTIES[g.difficulty].name}), Welle ${g.clearedUpTo}. Schaffst du mehr?`;
+    const text = `Kernwacht: ${fmt(info.score)} Punkte auf ${g.map.name} (${g.mission ? 'Kampagne' : modeName(g) + ', ' + DIFFICULTIES[g.difficulty].name}), Welle ${g.clearedUpTo}. Schaffst du mehr?`;
     const blob = await new Promise(r => c.toBlob(r, 'image/png'));
     const file = blob ? new File([blob], 'kernwacht-ergebnis.png', { type: 'image/png' }) : null;
     try {
@@ -1104,6 +1119,8 @@ export class UI {
     item('Tägliches Frontbau', kd ? `heute ${fmt(kd.score)} Punkte` : 'heute dieselben Karten für alle', () => this.showKachel(true));
     const dd = d.daily[todayKey()];
     item('Tägliche Herausforderung', dd ? `heute ${fmt(dd.score)} Punkte${dd.done ? ' · geschafft' : ''}` : 'jeden Tag neue Regeln', () => this.showDaily());
+    const wd = d.daily[weekKey()];
+    item('Wochen-Herausforderung', wd ? `diese Woche ${fmt(wd.score)} Punkte${wd.done ? ' · geschafft' : ''}` : 'schwer · 25 Wellen · drei Sonderregeln', () => this.showDaily(true));
     item('Endlos', 'Wellen ohne Ende – Karte wählen', () => { this.endless = true; this.showMaps('standard'); });
     item('Zurück', '', () => this.showMenu());
     box.appendChild(m);
@@ -1114,7 +1131,7 @@ export class UI {
   // Frontbau: Landschaft, Schwierigkeit und Kartendeck wählen
   kachelDaily() {
     const key = todayKey(), h = hashString('kdaily-' + key);
-    return { key, biome: BIOME_ORDER[h % BIOME_ORDER.length], deck: { towers: Object.keys(TOWER_UNLOCK).filter(t => TOWER_UNLOCK[t] === 0), specials: ['credits', 'orbital', 'kern'] } };
+    return { key, biome: BIOME_ORDER[h % BIOME_ORDER.length], deck: { towers: Object.keys(TOWER_UNLOCK).filter(t => TOWER_UNLOCK[t] === 0), specials: ['credits', 'risiko', 'kristall', 'orbital', 'kern'] } };
   }
   showKachel(daily) {
     const s = this.$('scrKachel');
@@ -1125,6 +1142,7 @@ export class UI {
     const un = unlockedCards(achN);
     if (!st.kdeck) st.kdeck = { towers: un.towers.slice(), specials: un.specials.slice(), biome: 'wueste' };
     const kd = st.kdeck;
+    if (kd.v !== 7) { kd.v = 7; for (const k of ['risiko', 'kristall']) if (!kd.specials.includes(k)) kd.specials.push(k); }
     kd.towers = kd.towers.filter(t => un.towers.includes(t));
     kd.specials = kd.specials.filter(t => un.specials.includes(t));
     const dc = daily ? this.kachelDaily() : null;
@@ -1188,7 +1206,7 @@ export class UI {
   renderHand() {
     const g = this.game, box = this.$('cardhand'), k = g && g.kachel;
     const show = k && g.state === 'playing' && k.phase !== 'ready';
-    const sig = show ? `${k.phase}|${k.round}|${k.picks}|${g.kstate.version}|${g.towers.length}` : '';
+    const sig = show ? `${k.phase}|${k.round}|${k.picks}|${g.kstate.version}|${g.towers.length}|${k.rerolled}|${this.kTip}|${k.crystals.length}|${g.credits >= g.rerollCost()}` : '';
     if (sig === this._handSig) return;
     this._handSig = sig;
     box.classList.toggle('hidden', !show);
@@ -1197,20 +1215,40 @@ export class UI {
     box.innerHTML = '';
     if (k.phase === 'place') {
       const c = k.pending;
-      const head = el('div', 'khead', `<b>${cardTitle(c)}</b> – tippe auf einen freien Platz oder auf einen gleichen Turm zum Aufrüsten`);
-      head.appendChild(this.btn('Andere Karte', '', () => { g.kachelCancel(); this.buildType = null; this.setGhost(null); this.refreshBuildSel(); this.renderHand(); }));
+      const what = c.kind === 'tower' ? 'tippe auf ein freies Kästchen oder auf einen gleichen Turm zum Aufrüsten' : 'tippe auf ein freies Kästchen';
+      const head = el('div', 'khead', `<b>${cardTitle(c)}</b> – ${what}`);
+      head.appendChild(this.btn('Andere Karte', '', () => { g.kachelCancel(); this.buildType = null; this.setGhost(null); this.refreshBuildSel(); this._handSig = null; this.renderHand(); }));
       box.appendChild(head);
       return;
     }
     const hand = g.kachelHand();
     const noPath = k.round > 0 && !hand.some(c => c.kind === 'path');
-    box.appendChild(el('div', 'khead', g.wave === 0 && k.round === 0 ? 'Wähle deinen ersten Turm' : `Wähle eine Karte ${k.picks > 1 ? `<span>noch ${k.picks}</span>` : ''}${noPath ? ' <small style="color:var(--dim)">· kein Platz für Wegstücke (Türme oder Rand im Weg)</small>' : ''}`));
+    const head = el('div', 'khead', g.wave === 0 && k.round === 0 ? 'Wähle deinen ersten Turm' : `Wähle eine Karte ${k.picks > 1 ? `<span>noch ${k.picks}</span>` : ''}${noPath ? ' <small style="color:var(--dim)">· kein Platz für Wegstücke</small>' : ''}`);
+    // mehrere Eingänge: wählen, wo das Wegstück angelegt wird
+    const tips = g.kstate.tips.length;
+    if (tips > 1 && hand.some(c => c.kind === 'path')) {
+      const seg = el('div', 'seg ktips');
+      seg.appendChild(this.btn('Auto', this.kTip < 0 ? 'on' : '', () => { this.kTip = -1; this._handSig = null; }));
+      for (let t = 0; t < tips; t++) seg.appendChild(this.btn('Eingang ' + (t + 1), this.kTip === t ? 'on' : '', () => { this.kTip = t; this._handSig = null; }));
+      head.appendChild(seg);
+    }
+    if (k.round > 0) {
+      const cost = g.rerollCost();
+      const rb = this.btn(k.rerolled ? 'Neu gezogen' : `Neu ziehen <b style="color:var(--gold)">${cost}</b>`, 'reroll', () => { if (g.kachelReroll()) { this._handSig = null; this.drainEvents(); } else this.drainEvents(); });
+      rb.disabled = k.rerolled || g.credits < cost;
+      rb._tip = () => '<h5>Neu ziehen</h5><p>Einmal pro Runde drei neue Karten gegen Credits.</p>';
+      head.appendChild(rb);
+    }
+    box.appendChild(head);
     const row = el('div', 'krow');
     hand.forEach((c, i) => {
-      const bad = c.kind === 'path' && !g.kachelPathPreview(i);
-      const b = el('button', 'kcard' + (bad ? ' bad' : '') + (c.tier === '2' ? ' st2' : ''), `<span class="ktag">${c.kind === 'path' ? 'Weg' : c.kind === 'tower' ? 'Turm' : 'Spezial'}</span><div class="kic">${cardIcon(c)}</div><b>${cardTitle(c)}</b><small>${cardDesc(c)}</small>`);
+      const bad = c.kind === 'path' && g.kachelTipFor(i, this.kTip) < 0;
+      const rar = cardRarity(c);
+      const tag = c.kind === 'path' ? 'Weg' : c.kind === 'tower' ? 'Turm' : SPECIAL_CARDS[c.id].place ? 'Hindernis' : 'Spezial';
+      const b = el('button', 'kcard rar' + rar + (bad ? ' bad' : ''), `<span class="ktag">${tag}</span><span class="krar">${RARITY[rar].name}</span><div class="kic">${cardIcon(c)}</div><b>${cardTitle(c)}</b><small>${cardDesc(c)}</small>`);
       b.style.setProperty('--kc', CARD_COLOR[c.kind]);
-      const prev = () => { this.kPreview = c.kind === 'path' ? g.kachelPathPreview(i) : null; };
+      b.style.setProperty('--rc', RARITY[rar].color);
+      const prev = () => { this.kPreview = c.kind === 'path' ? g.kachelPathPreview(i, this.kTip) : null; };
       b.onpointerenter = (e) => { if (e.pointerType === 'mouse') prev(); };
       b.onpointerleave = (e) => { if (e.pointerType === 'mouse' && this.kArmed !== i) this.kPreview = null; };
       b.onpointerup = (e) => {
@@ -1227,14 +1265,15 @@ export class UI {
   }
   pickCard(i) {
     const g = this.game;
-    const res = g.kachelPick(i);
+    const res = g.kachelPick(i, this.kTip);
     if (!res) { this.drainEvents(); return; }
     this.kPreview = null;
     if (res === 'place') {
       const c = g.kachel.pending;
-      this.buildType = c.id; this.select(null); this.pendingPos = null;
+      this.buildType = c.kind === 'tower' ? c.id : null; this.select(null);
       sfx.play('click');
     }
+    if (g.kstate.tips.length <= (this.kTip || 0)) this.kTip = -1;
     this._handSig = null;
     this.renderHand();
   }
@@ -1279,19 +1318,21 @@ export class UI {
     this.showScreen('scrMaps');
   }
 
-  showDaily() {
+  showDaily(weekly = false) {
     const s = this.$('scrDaily');
     s.innerHTML = '';
-    const cfg = dailyConfig();
+    const cfg = dailyConfig(new Date(), weekly);
     const map = MAPS.find(m => m.id === cfg.mapId);
     const rec = store.data.daily[cfg.key];
     const box = el('div', 'box card');
     box.style.width = 'min(640px,100%)';
     const [y, mo, da] = cfg.key.split('-');
-    const hdr = el('div', 'hdr', `<h2>Tägliche Herausforderung</h2>`);
-    hdr.appendChild(this.btn('Zurück', 'btn', () => this.showMenu()));
+    const hdr = el('div', 'hdr', `<h2>${weekly ? 'Wochen-Herausforderung' : 'Tägliche Herausforderung'}</h2>`);
+    hdr.appendChild(this.btn('Zurück', 'btn', () => this.showModes()));
     box.appendChild(hdr);
-    box.appendChild(el('p', '', `<span style="color:var(--dim)">${da}.${mo}.${y} – heute spielen alle mit denselben Regeln und denselben Wellen. 20 Wellen auf Schwierigkeit Mittel, mit Kommandant und Ereignissen wie im Advance-Modus, aber ohne Forschungs-Boni.</span>`));
+    box.appendChild(el('p', '', weekly
+      ? `<span style="color:var(--dim)">Kalenderwoche ${mo} – die ganze Woche spielen alle mit denselben Regeln und Wellen. 25 Wellen auf Schwierigkeit Schwer, drei Sonderregeln, mit Kommandant und Ereignissen, ohne Forschungs-Boni.</span>`
+      : `<span style="color:var(--dim)">${da}.${mo}.${y} – heute spielen alle mit denselben Regeln und denselben Wellen. 20 Wellen auf Schwierigkeit Mittel, mit Kommandant und Ereignissen wie im Advance-Modus, aber ohne Forschungs-Boni.</span>`));
     const cv = document.createElement('canvas'); cv.width = 360; cv.height = 200; cv.style.cssText = 'width:100%;max-width:360px;border-radius:12px;display:block;margin:8px auto;border:1px solid var(--line2)';
     drawThumb(cv, map);
     box.appendChild(cv);
@@ -1304,7 +1345,8 @@ export class UI {
       rules.appendChild(el('div', '', `<b>${m.name}</b><small>${m.desc}${extra}</small>`));
     }
     box.appendChild(rules);
-    box.appendChild(el('p', '', rec ? `Dein Bestwert heute: <b style="color:var(--gold)">${fmt(rec.score)}</b> Punkte, Welle ${rec.wave}${rec.done ? ' – geschafft!' : ''}` : '<span style="color:var(--dim)">Heute noch nicht gespielt.</span>'));
+    const when = weekly ? 'diese Woche' : 'heute';
+    box.appendChild(el('p', '', rec ? `Dein Bestwert ${when}: <b style="color:var(--gold)">${fmt(rec.score)}</b> Punkte, Welle ${rec.wave}${rec.done ? ' – geschafft!' : ''}` : `<span style="color:var(--dim)">${weekly ? 'Diese Woche' : 'Heute'} noch nicht gespielt.</span>`));
     const r = el('div', 'rowbtns');
     r.appendChild(this.btn('Herausforderung starten', 'btn gold', () => this.startGame({ mode: 'daily', mapDef: map, endless: false, daily: cfg })));
     box.appendChild(r);
@@ -1433,7 +1475,7 @@ export class UI {
     box.appendChild(opt);
     const seg = el('div', 'seg'); seg.style.marginBottom = '10px';
     const today = 'daily-' + todayKey();
-    const boards = [['gesamt', 'Gesamt'], [today, 'Tägliche Herausforderung heute'], ['modus-kachel', 'Frontbau'], ['kdaily-' + todayKey(), 'Frontbau heute'], ...MAPS.map(m => ['karte-' + m.id, m.name])];
+    const boards = [['gesamt', 'Gesamt'], [today, 'Tägliche Herausforderung heute'], ['daily-' + weekKey(), 'Woche'], ['modus-kachel', 'Frontbau'], ['kdaily-' + todayKey(), 'Frontbau heute'], ...MAPS.map(m => ['karte-' + m.id, m.name])];
     for (const [k, l] of boards) seg.appendChild(this.btn(l, board === k ? 'on' : '', () => this.showRank(k)));
     seg.style.flexWrap = 'wrap';
     box.appendChild(seg);
@@ -1480,6 +1522,7 @@ export class UI {
     tog('music', 'Hintergrundklang', (v) => sfx.setMusic(v));
     tog('shake', 'Bildschirmwackeln');
     tog('tips', 'Tipps anzeigen');
+    tog('colorblind', 'Farbhilfe für Farbenblinde (Blau/Orange statt Grün/Rot)', (v) => document.body.classList.toggle('cb', !!v));
     tog('showFps', 'Bilder pro Sekunde anzeigen', (v) => this.$('fps').classList.toggle('hidden', !v));
     const q = el('div', 'seg');
     for (const [v, l] of [['hoch', 'Hoch'], ['mittel', 'Mittel'], ['niedrig', 'Niedrig']]) {

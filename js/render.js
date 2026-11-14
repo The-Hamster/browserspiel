@@ -1,5 +1,6 @@
 // Zeichnen: Sternenhimmel, Karte, Einheiten, Effekte
 import { TILE, COLS, ROWS, WORLD_W, WORLD_H, TOWERS, ENEMIES, BASE, TILT, TOWER_LOOK, SCENERY, VIEW_COLS, VIEW_ROWS } from './data.js';
+import { KRANGE } from './kachel.js';
 import { glow, smoke, enemySprite, towerHeadSprite, towerBodySprite, towerDims, headScale, obstacleSprite, mk, clearSpriteCache, PAL, ci, roundRect, tierColor } from './sprites.js';
 import { P_GLOW, P_SPARK, P_SMOKE, P_DEBRIS, P_HEAT } from './particles.js';
 import { drawTerrain, drawScenery } from './terrain.js';
@@ -276,6 +277,7 @@ export class Renderer {
     const shx = (Math.random() - 0.5) * sh, shy = (Math.random() - 0.5) * sh;
     this.drawBackground(dt, shx * 0.05 + ui.mouseNX * 0.3, shy * 0.05 + ui.mouseNY * 0.3);
     if (!this.prewarmed) this.prewarm();
+    this.cb = !!ui.settings.colorblind;
     this.ensureMap(game.map);
     this.worldTransform(shx, shy);
     g.globalAlpha = 1; g.globalCompositeOperation = 'source-over';
@@ -288,7 +290,7 @@ export class Renderer {
     else g.drawImage(L, this.wt.tx, this.wt.ty, WORLD_W * want, WORLD_H * TILT * want);
     this.resetWT();
     const low = ui.settings.quality === 'niedrig';
-    if (ui.buildType || ui.pendingPos) this.drawBuildGrid(game);
+    if (ui.buildType && !game.kachel) this.drawBuildGrid(game);
     const t = this.time;
     const th = game.map.theme;
 
@@ -320,9 +322,10 @@ export class Renderer {
     g.globalCompositeOperation = 'source-over';
 
     // Auswahl / Vorschau
+    if (game.kachel) this.drawKachelGrid(game, ui);
     this.drawSelection(game, ui);
 
-    if (ui.showRanges) this.drawAllRanges(game);
+    if (ui.showRanges && !game.kachel) this.drawAllRanges(game);
     // Schatten der Flieger + Drohnen auf dem Boden
     g.globalAlpha = 0.3; g.fillStyle = '#000';
     for (const e of game.enemies) if (e.air && e.active) { g.beginPath(); g.ellipse(e.x + 6, e.y + 4, e.r * 0.9, e.r * 0.6, 0, 0, 7); g.fill(); }
@@ -404,25 +407,86 @@ export class Renderer {
   }
 
   // Frontbau: Vorschau des neuen Wegstücks
+  // Frontbau: Vorschau des neuen Wegstücks (Kästchen)
   drawKachelPreview(game, pv) {
     const g = this.ctx, t = this.time;
-    const cen = ([cx, cy]) => ({ x: (cx * 2 + 1) * TILE, y: (cy * 2 + 1) * TILE });
-    const cells = game.kstate.cells;
-    const pts = [cen(cells[cells.length - 1]), ...pv.cells.map(cen)];
-    const D = [[1, 0], [0, 1], [-1, 0], [0, -1]][pv.dir];
-    const last = pv.cells[pv.cells.length - 1];
-    pts.push(cen([last[0] + D[0], last[1] + D[1]]));
+    const cen = ([cx, cy]) => ({ x: (cx + 0.5) * TILE, y: (cy + 0.5) * TILE });
+    const D = [[1, 0], [0, 1], [-1, 0], [0, -1]];
+    const one = (cells, dir) => {
+      const pts = [cen([pv.from.x, pv.from.y]), ...cells.map(cen)];
+      const last = cells[cells.length - 1];
+      pts.push(cen([last[0] + D[dir][0], last[1] + D[dir][1]]));
+      g.fillStyle = 'rgba(255,210,62,0.16)'; g.strokeStyle = 'rgba(255,210,62,0.55)'; g.lineWidth = 1.5;
+      for (const [x, y] of cells) { g.fillRect(x * TILE + 2, y * TILE + 2, TILE - 4, TILE - 4); g.strokeRect(x * TILE + 2, y * TILE + 2, TILE - 4, TILE - 4); }
+      g.lineCap = 'round'; g.lineJoin = 'round';
+      g.setLineDash([14, 12]); g.lineDashOffset = -t * 40;
+      g.strokeStyle = 'rgba(255,210,62,0.9)'; g.lineWidth = 3;
+      g.beginPath(); pts.forEach((q, i) => i ? g.lineTo(q.x, q.y) : g.moveTo(q.x, q.y)); g.stroke();
+      g.setLineDash([]);
+      const e = pts[pts.length - 1];
+      g.fillStyle = 'rgba(255,61,110,0.8)'; g.beginPath(); g.arc(e.x, e.y, 12 + Math.sin(t * 5) * 2, 0, 7); g.fill();
+    };
     this.resetWT();
-    g.lineCap = 'round'; g.lineJoin = 'round';
-    g.strokeStyle = 'rgba(255,210,62,0.18)'; g.lineWidth = 58;
-    g.beginPath(); pts.forEach((q, i) => i ? g.lineTo(q.x, q.y) : g.moveTo(q.x, q.y)); g.stroke();
-    g.setLineDash([14, 12]); g.lineDashOffset = -t * 40;
-    g.strokeStyle = 'rgba(255,210,62,0.85)'; g.lineWidth = 3;
-    g.beginPath(); pts.forEach((q, i) => i ? g.lineTo(q.x, q.y) : g.moveTo(q.x, q.y)); g.stroke();
-    g.setLineDash([]);
-    const e = pts[pts.length - 1];
-    g.fillStyle = 'rgba(255,61,110,0.8)'; g.beginPath(); g.arc(e.x, e.y, 12 + Math.sin(t * 5) * 2, 0, 7); g.fill();
+    one(pv.cells, pv.dir);
+    if (pv.branch) one(pv.branch.cells, pv.branch.dir);
     this.resetWT();
+  }
+
+  // Frontbau: Raster, Basis 4 × 4, Reichweiten als Kästchen
+  rangeCells(cx, cy, n, col, a = 0.16) {
+    const g = this.ctx, R2 = (n + 0.5) ** 2;
+    g.fillStyle = rgba(col, a); g.strokeStyle = rgba(col, a * 3); g.lineWidth = 1.2;
+    for (let dy = -n; dy <= n; dy++) for (let dx = -n; dx <= n; dx++) {
+      if (dx * dx + dy * dy > R2 || (dx === 0 && dy === 0)) continue;
+      const x = (cx + dx) * TILE, y = (cy + dy) * TILE;
+      g.fillRect(x + 3, y + 3, TILE - 6, TILE - 6); g.strokeRect(x + 3, y + 3, TILE - 6, TILE - 6);
+    }
+  }
+  drawKachelGrid(game, ui) {
+    const g = this.ctx, k = game.kachel, cb = ui.settings.colorblind;
+    const active = k.phase !== 'ready' || ui.selected;
+    this.resetWT();
+    // Rasterlinien innerhalb der Grenze
+    const P = game.map.border && game.map.border.pts;
+    g.save();
+    if (P) { g.beginPath(); g.moveTo(P[0].x, P[0].y); for (const p of P) g.lineTo(p.x, p.y); g.closePath(); g.clip(); }
+    g.strokeStyle = `rgba(200,220,255,${active ? 0.2 : 0.09})`; g.lineWidth = 1;
+    g.beginPath();
+    for (let x = 1; x < COLS; x++) { g.moveTo(x * TILE, 0); g.lineTo(x * TILE, WORLD_H); }
+    for (let y = 1; y < ROWS; y++) { g.moveTo(0, y * TILE); g.lineTo(WORLD_W, y * TILE); }
+    g.stroke();
+    g.restore();
+    // Basis: 4 × 4 Kästchen
+    const [bx, by] = game.mapDef.base;
+    g.strokeStyle = 'rgba(54,241,255,0.45)'; g.lineWidth = 2; g.setLineDash([8, 6]);
+    roundRect(g, (bx - 2) * TILE + 2, (by - 2) * TILE + 2, TILE * 4 - 4, TILE * 4 - 4, 10); g.stroke(); g.setLineDash([]);
+    // Kristalle: Wirkungsbereich
+    for (const [x, y] of k.crystals) { g.strokeStyle = 'rgba(209,140,255,0.35)'; g.lineWidth = 1.5; g.strokeRect((x - 1) * TILE + 4, (y - 1) * TILE + 4, TILE * 3 - 8, TILE * 3 - 8); }
+    // gewählter Turm
+    const sel = ui.selected;
+    if (sel && sel.kind === 'tower') {
+      const tw = sel.tower, [cx, cy] = game.kCell(tw.x, tw.y);
+      this.rangeCells(cx, cy, game.kRangeCells(tw), cb ? '#ffd23e' : TOWERS[tw.type].color, 0.14);
+    }
+    if (ui.showRanges) for (const tw of game.towers) { const [cx, cy] = game.kCell(tw.x, tw.y); this.rangeCells(cx, cy, game.kRangeCells(tw), TOWERS[tw.type].color, 0.05); }
+    // Kästchen zum Setzen
+    const h = ui.ghost;
+    if (h && k.phase === 'place') {
+      const c = k.pending, [cx, cy] = game.kCell(h.x, h.y);
+      const tw = c.kind === 'tower' ? game.towers.find(o => o.type === c.id && game.kCell(o.x, o.y).join() === cx + ',' + cy) : null;
+      const ok = tw ? game.nextTiers(tw).length > 0 : game.kCellFree(h.x, h.y);
+      const col = ok ? (cb ? '#4f9dff' : '#5dffb0') : (cb ? '#ff9a3c' : '#ff3d5a');
+      g.fillStyle = rgba(col, 0.22); g.strokeStyle = col; g.lineWidth = 2.5;
+      g.fillRect(cx * TILE + 2, cy * TILE + 2, TILE - 4, TILE - 4); g.strokeRect(cx * TILE + 2, cy * TILE + 2, TILE - 4, TILE - 4);
+      if (ok && c.kind === 'tower' && !tw) this.rangeCells(cx, cy, KRANGE[c.id] + (c.tier === '3' ? 1 : 0), TOWERS[c.id].color, 0.13);
+      if (ok && c.kind === 'special') { g.strokeStyle = 'rgba(209,140,255,0.5)'; g.strokeRect((cx - 1) * TILE + 4, (cy - 1) * TILE + 4, TILE * 3 - 8, TILE * 3 - 8); }
+      if (ok && c.kind === 'tower' && !tw) {
+        const body = towerBodySprite(c.id, '1', this.res), p = game.kSnap(h.x, h.y);
+        this.sprUp(body, p.x, p.y, 0, 0.6);
+        g.globalAlpha = 0.6; this.sprR(towerHeadSprite(c.id, '1', this.res), p.x, p.y, -Math.PI / 2, 1, body.top); g.globalAlpha = 1;
+        this.resetWT();
+      }
+    }
   }
 
   setQuality(q) { this.quality = q; this.mapKey = null; this.light = null; this.res = 0; clearSpriteCache(); this.prewarmed = false; if (this.playRect) this.resize(this.playRect); }
@@ -446,10 +510,10 @@ export class Renderer {
     if (!this.gridLayer || this.gridRef !== map) {
       const c = mk(WORLD_W, WORLD_H), g = c.getContext('2d');
       const grid = map.grid, CW = WORLD_W / Math.ceil(WORLD_W / 8);
-      g.fillStyle = 'rgba(93,255,176,0.07)';
+      g.fillStyle = this.cb ? 'rgba(79,157,255,0.09)' : 'rgba(93,255,176,0.07)';
       const GWc = Math.ceil(WORLD_W / 8);
       for (let i = 0; i < grid.length; i++) if (!grid[i]) g.fillRect((i % GWc) * 8, Math.floor(i / GWc) * 8, 8, 8);
-      g.fillStyle = 'rgba(93,255,176,0.35)';
+      g.fillStyle = this.cb ? 'rgba(79,157,255,0.4)' : 'rgba(93,255,176,0.35)';
       for (let y = 16; y < WORLD_H; y += 32) for (let x = 16; x < WORLD_W; x += 32) {
         const i = Math.floor(y / 8) * GWc + Math.floor(x / 8);
         if (!grid[i]) g.fillRect(x - 1, y - 1, 2, 2);
@@ -536,10 +600,11 @@ export class Renderer {
   drawSelection(game, ui) {
     const g = this.ctx;
     const sel = ui.selected;
-    if (sel && sel.kind === 'tower') {
+    if (sel && sel.kind === 'tower' && game.kachel) { const tw = sel.tower; g.strokeStyle = '#ffffff'; g.lineWidth = 2; g.beginPath(); g.arc(tw.x, tw.y, 30, 0, 7); g.stroke(); }
+    else if (sel && sel.kind === 'tower') {
       const tw = sel.tower;
       const r = game.towerRange(tw);
-      const col = TOWERS[tw.type].color;
+      const col = this.cb ? '#ffd23e' : TOWERS[tw.type].color;
       g.fillStyle = rgba(col, 0.07); g.strokeStyle = rgba(col, 0.55); g.lineWidth = 2;
       g.setLineDash([10, 8]); g.lineDashOffset = -this.time * 20;
       g.beginPath(); g.arc(tw.x, tw.y, r, 0, 7); g.fill(); g.stroke(); g.setLineDash([]);
@@ -554,9 +619,9 @@ export class Renderer {
     }
     // Bauvorschau (frei platzierbar)
     const h = ui.ghost;
-    if (h && game.state === 'playing' && (ui.buildType || ui.pendingPos)) {
+    if (h && game.state === 'playing' && ui.buildType && !game.kachel) {
       const ok = game.canBuild(h.x, h.y);
-      const col = ok ? '#5dffb0' : '#ff3d5a';
+      const col = ok ? (this.cb ? '#4f9dff' : '#5dffb0') : (this.cb ? '#ff9a3c' : '#ff3d5a');
       g.fillStyle = rgba(col, 0.14); g.strokeStyle = col; g.lineWidth = 2;
       g.beginPath(); g.arc(h.x, h.y, 26, 0, 7); g.fill(); g.stroke();
       const buildType = ui.buildType;
@@ -743,7 +808,7 @@ export class Renderer {
     const g = this.ctx;
     for (const tw of game.towers) {
       if (tw.spec.kind === 'shieldgen') continue;
-      const col = TOWERS[tw.type].color;
+      const col = this.cb ? '#ffd23e' : TOWERS[tw.type].color;
       g.fillStyle = rgba(col, 0.035); g.strokeStyle = rgba(col, 0.35); g.lineWidth = 1.5;
       g.beginPath(); g.arc(tw.x, tw.y, game.towerRange(tw), 0, 7); g.fill(); g.stroke();
     }
@@ -762,6 +827,15 @@ export class Renderer {
     g.globalCompositeOperation = 'source-over';
     for (const e of E) {
       if (!e.active || e.air !== air) continue;
+      if (e.under > 0) {
+        // eingegrabener Gräber: Erdhügel, der sich bewegt
+        this.resetWT(); g.globalAlpha = 1;
+        const B = game.map.biome, k = 0.85 + Math.sin(e.anim * 9) * 0.1;
+        g.fillStyle = 'rgba(0,0,0,0.35)'; g.beginPath(); g.ellipse(e.x + 2, e.y + 2, e.r * 1.1, e.r * 0.8, 0, 0, 7); g.fill();
+        g.fillStyle = mix(B.rock, '#000000', 0.15); g.beginPath(); g.ellipse(e.x, e.y, e.r * k, e.r * 0.7 * k, e.angle, 0, 7); g.fill();
+        g.fillStyle = rgba(mix(B.rock, '#ffffff', 0.25), 0.6); g.beginPath(); g.ellipse(e.x - 2, e.y - 2, e.r * 0.45, e.r * 0.3, e.angle, 0, 7); g.fill();
+        continue;
+      }
       const hidden = e.cloaked && !e.revealed;
       let sc = 1 + (e.hit > 0 ? e.hit * 1.8 : 0);
       if (e.type === 'splitter') sc *= 1 + Math.sin(e.anim * 5) * 0.06;
@@ -821,14 +895,14 @@ export class Renderer {
     const g = this.ctx;
     this.uprightT();
     for (const e of game.enemies) {
-      if (!e.active || (e.cloaked && !e.revealed)) continue;
+      if (!e.active || (e.cloaked && !e.revealed) || e.under > 0) continue;
       const big = e.def.boss;
       const w = big ? 84 : Math.max(16, e.r * 2), h = big ? 5 : 3;
       const x = e.x - w / 2, y = e.y * TILT - this.enemyZ(e) - e.r * TILT - (big ? 16 : 10);
       g.fillStyle = e.elite ? '#ffd23e' : 'rgba(0,0,0,0.75)'; g.fillRect(x - 1, y - 1, w + 2, h + 2);
       g.fillStyle = 'rgba(10,12,18,0.95)'; g.fillRect(x, y, w, h);
       const f = Math.max(0, e.hp / e.maxHp);
-      g.fillStyle = f > 0.5 ? '#5dff8a' : f > 0.25 ? '#ffcf3a' : '#ff3d5a';
+      g.fillStyle = this.cb ? (f > 0.5 ? '#4fb3ff' : f > 0.25 ? '#f2f2f2' : '#ff9a3c') : (f > 0.5 ? '#5dff8a' : f > 0.25 ? '#ffcf3a' : '#ff3d5a');
       g.fillRect(x, y, w * f, h);
       if (e.maxShield > 0 && e.shield > 0) { g.fillStyle = '#4fc3ff'; g.fillRect(x, y - 3, w * (e.shield / e.maxShield), 2); }
     }

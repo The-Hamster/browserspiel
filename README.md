@@ -1,6 +1,6 @@
 # KERNWACHT
 
-**Version 1.0.6**
+**Version 1.0.7**
 
 **Ein Sci-Fi-Tower-Defense-Spiel, das direkt im Browser läuft.**
 
@@ -21,6 +21,23 @@ python3 -m http.server 8000
 Danach im Browser `http://localhost:8000` öffnen.
 
 Läuft am PC (Maus und Tastatur) und am Handy oder Tablet (Touch, im Querformat).
+
+## Neu in Version 1.0.7
+
+- **Frontbau im Raster:** Alles liegt auf sichtbaren Kästchen. Die Basis belegt 4 × 4 Kästchen, ein Turm eines. Jeder Turm reicht 1, 2 oder 3 Kästchen weit (auf Stufe 3 eines mehr) – angezeigt als farbige Kästchen.
+  - 1 Kästchen: EMP, Bogenspule, Schildgenerator · 2 Kästchen: Pulslaser, Plasmawerfer, Drohnenhangar, Radarmast · 3 Kästchen: Schienenkanone, Raketenwerfer
+- **Nachbar-Bonus:** Gleiche Türme nebeneinander machen je +10 % Schaden (bis +30 %), ein Radarmast stärkt die 8 Kästchen um sich herum um 15 %.
+- **Neue Karten:** Sumpfstück (Gegner langsamer), Glutstück (Gegner brennen), Abzweigung (zweiter Eingang), Energiekristall (Türme daneben +1 Kästchen Reichweite), Risiko (zähere Welle, doppelte Credits), Türme direkt auf Stufe 2 oder 3.
+- **Seltenheit:** Karten sind gewöhnlich, selten oder episch – mit farbigem Rahmen.
+- **Neu ziehen:** Einmal pro Runde drei neue Karten gegen Credits.
+- **Einführung:** Die ersten Runden Frontbau erklären Schritt für Schritt, was zu tun ist.
+- **Bedienung:** Ein Klick auf eine leere Stelle hebt die Auswahl auf (wie Rechtsklick), Ziehen verschiebt die Karte. Gebaut wird so: erst Turm wählen, dann Platz anklicken.
+- **Zwei neue Gegner:** Heiler (heilt Gegner in der Nähe) und Gräber (gräbt sich zeitweise ein und ist dann unverwundbar).
+- **Auswertung** am Spielende: Schaden je Turmart als Balken.
+- **Wochen-Herausforderung:** eine Woche lang dieselben Regeln für alle – 25 Wellen auf Schwer mit drei Sonderregeln, eigene Rangliste.
+- Berge der Grenze jetzt auch im Karten-Editor.
+- **Farbhilfe** für Farbenblinde in den Einstellungen (Blau/Orange statt Grün/Rot bei Leben, Bauvorschau und Reichweiten).
+- Ohne Reparatur (Standard, Frontbau) beschleunigt der Schildgenerator seine Nachbarn, statt Schilde zu verteilen.
 
 ## Neu in Version 1.0.6
 
@@ -66,7 +83,7 @@ Läuft am PC (Maus und Tastatur) und am Handy oder Tablet (Touch, im Querformat)
 
 ## So funktioniert's
 
-- **Türme bauen:** Unten einen Turm wählen und auf einen freien Platz neben dem Weg tippen – oder erst den Platz antippen, dann den Turm. Beim Bauen wird der freie Bereich dezent grün markiert.
+- **Türme bauen:** Unten einen Turm wählen und auf einen freien Platz neben dem Weg tippen. Beim Bauen wird der freie Bereich dezent grün markiert. Tippen auf eine leere Stelle hebt die Auswahl auf, Ziehen verschiebt die Karte.
 - **Welle starten:** Oben „Welle starten“. Danach kommen die Wellen von selbst. Wer früher startet, bekommt Bonus-Credits.
 - **Aufrüsten:** Einen Turm antippen – das Fenster öffnet sich direkt daneben. Jeder Turm hat 3 Stufen, auf Stufe 3 wählst du eine von zwei Spezialisierungen. Dort kannst du auch verkaufen und das Ziel wählen (Erster, Stärkster, Nächster).
 - **Reaktorkern ausbauen:** Den Kern antippen: Panzerung, Energieschild, Kernkanone, Energiefluss und die Notfall-Pulswelle.
@@ -90,14 +107,14 @@ Läuft am PC (Maus und Tastatur) und am Handy oder Tablet (Touch, im Querformat)
 
 ### Gegner
 
-Schwärmer (viele, schwach) · Belagerer (gepanzert, beschießt den Kern – im Advance-Modus auch Türme) · Schildträger · Phantom (getarnt) · Gleiter (fliegt direkt zum Kern) · Teiler (zerfällt in kleine Teile) · Schwarmträger (Boss alle 10 Wellen).
+Schwärmer (viele, schwach) · Belagerer (gepanzert, beschießt den Kern – im Advance-Modus auch Türme) · Schildträger · Phantom (getarnt) · Gleiter (fliegt direkt zum Kern) · Teiler (zerfällt in kleine Teile) · Heiler (heilt Gegner in der Nähe) · Gräber (gräbt sich zeitweise ein) · Schwarmträger und Maschinenkoloss (Bosse alle 10 Wellen).
 
 ## Steuerung am PC
 
 | Taste | Aktion |
 |---|---|
 | Klick | Bauen, Auswählen |
-| Rechtsklick / Esc | Abbrechen |
+| Klick auf leere Stelle / Rechtsklick / Esc | Abbrechen, Auswahl aufheben |
 | 1–9 | Turm wählen |
 | Umschalt + Klick | mehrere Türme hintereinander bauen |
 | Leertaste | Pause |
@@ -124,7 +141,7 @@ Vor jeder Partie wählst du **Leicht · Mittel · Schwer · Experte**. Je höher
 
 ## Die Modi
 
-Im Hauptmenü unter **Modi** findest du Advance, Frontbau, Tägliches Frontbau, Tägliche Herausforderung und Endlos.
+Im Hauptmenü unter **Modi** findest du Advance, Frontbau, Tägliches Frontbau, Tägliche Herausforderung, Wochen-Herausforderung und Endlos.
 
 | | Standard | Advance |
 |---|---|---|
@@ -137,9 +154,11 @@ Im Hauptmenü unter **Modi** findest du Advance, Frontbau, Tägliches Frontbau, 
 
 **Endlos-Modus:** Auf jeder Karte zuschaltbar – Wellen ohne Ende, sie werden immer härter.
 
-**Frontbau:** 30 Wellen. Vor jeder Welle eine von drei Karten: Wegstück, Turm (kostenlos) oder Spezialkarte (Nachschub, Orbitalladung, Kernverstärkung, Doppelzug). Türme gibt es nur über Karten, Credits gehen in Ausbauten. Drohnenhangar, Schildgenerator und einige Spezialkarten werden über Erfolge freigeschaltet. Die erste Karte ist immer ein Turm.
+**Frontbau:** 30 Wellen auf einem Kästchen-Raster. Vor jeder Welle eine von drei Karten: Wegstück (auch Sumpf, Glut oder Abzweigung), Turm (kostenlos) oder Spezialkarte (Nachschub, Risiko, Energiekristall, Orbitalladung, Kernverstärkung, Doppelzug). Türme gibt es nur über Karten, Credits gehen in Ausbauten. Drohnenhangar, Schildgenerator und einige Spezialkarten werden über Erfolge freigeschaltet. Die erste Karte ist immer ein Turm.
 
 **Tägliche Herausforderung:** Jeden Tag eine feste Karte, zwei Sonderregeln und dieselben Wellen für alle (20 Wellen auf „Mittel“ mit Kommandant und Ereignissen, ohne Forschungs-Boni).
+
+**Wochen-Herausforderung:** Eine Woche lang feste Karte, drei Sonderregeln und dieselben Wellen für alle (25 Wellen auf „Schwer“).
 
 **Karten-Editor:** Weg mit runden Kurven, Startpunkt, Landschaft (Glutwüste, Frostebene, Kristallfeld, Giftdschungel, Aschewüste, Nebelsumpf) und Hindernisse selbst setzen, speichern und in beiden Modi spielen.
 

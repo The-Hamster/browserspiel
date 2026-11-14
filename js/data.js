@@ -9,7 +9,7 @@ export const WORLD_H = ROWS * TILE;
 export const TILT = 0.78;
 
 export const GAME_TITLE = 'KERNWACHT';
-export const VERSION = '1.0.6';
+export const VERSION = '1.0.7';
 // Kulisse jenseits des Grenzwalls (Weltpixel) und Größe der Standard-Ansicht (Felder)
 export const SCENERY = 640;
 export const VIEW_COLS = 20;
@@ -161,6 +161,8 @@ export const ENEMIES = {
   phantom:  { name: 'Phantom', hp: 75, speed: 62, armor: 0, reward: 11, dmg: 2, r: 12, color: '#c58bff', cost: 4, spacing: 0.9, cloak: true, desc: 'Getarnt – nur mit Radarmast sichtbar.' },
   flyer:    { name: 'Gleiter', hp: 65, speed: 58, armor: 0, reward: 9, dmg: 2, r: 13, color: '#ffe14d', cost: 3, spacing: 0.9, air: true, desc: 'Fliegt direkt zum Kern.' },
   splitter: { name: 'Teiler', hp: 140, speed: 42, armor: 0, reward: 10, dmg: 2, r: 16, color: '#ff4fa0', cost: 5, spacing: 1.2, split: { type: 'mite', n: 3 }, desc: 'Zerfällt in kleine Splitterlinge.' },
+  healer:   { name: 'Heiler', hp: 120, speed: 46, armor: 1, reward: 13, dmg: 2, r: 13, color: '#5dffb0', cost: 5, spacing: 1.3, heal: { cd: 2.6, range: 1.9, pct: 0.08 }, desc: 'Heilt Gegner in seiner Nähe.' },
+  graeber:  { name: 'Gräber', hp: 150, speed: 50, armor: 2, reward: 13, dmg: 3, r: 13, color: '#c8a26a', cost: 5, spacing: 1.2, burrow: { cd: 5, dur: 1.8 }, desc: 'Gräbt sich zeitweise ein – dann treffen ihn keine Türme.' },
   mite:     { name: 'Splitterling', hp: 26, speed: 86, armor: 0, reward: 2, dmg: 1, r: 7, color: '#ff8cc6', cost: 1, spacing: 0.3 },
   boss:     { name: 'Schwarmträger', hp: 2000, shield: 400, speed: 20, armor: 3, reward: 250, dmg: 30, r: 36, color: '#ff3d6e', cost: 60, spacing: 8, boss: true, spawn: { type: 'swarm', cd: 4.5, n: 3 }, shoot: { dmg: 14, cd: 4.5, range: 2.8, charge: 1.1 }, desc: 'Riesiges Mutterschiff. EMP zerstört sein Schild.' },
   boss2:    { name: 'Maschinenkoloss', hp: 2600, shield: 0, speed: 17, armor: 6, reward: 300, dmg: 35, r: 34, color: '#ffb02e', cost: 60, spacing: 8, boss: true, jam: { cd: 7, range: 2.6, dur: 3 }, desc: 'Schwerer Kampfläufer. Sein Störimpuls legt Türme in der Nähe kurz lahm.' },
@@ -174,12 +176,16 @@ export const ENEMY_TIPS = {
   flyer: { strong: 'Fliegt direkt zum Kern, ignoriert den Weg.', weak: 'Raketenwerfer (doppelter Schaden), Laser, Drohnen.' },
   splitter: { strong: 'Zerfällt in mehrere Splitterlinge.', weak: 'Flächenschaden am Ende des Weges.' },
   mite: { strong: 'Sehr schnell.', weak: 'Bogenspule und Laser.' },
+  healer: { strong: 'Heilt alle Gegner in der Nähe immer wieder.', weak: 'Zuerst ausschalten: Schienenkanone oder Raketen auf „Stärkster“, Flächenschaden trifft die Gruppe.' },
+  graeber: { strong: 'Unter der Erde unverwundbar und schneller.', weak: 'Bremsen (EMP, Sumpf) und viele Türme entlang des Weges, damit er beim Auftauchen sofort Feuer bekommt.' },
   boss: { strong: 'Riesig, setzt Schwärmer ab, beschießt Türme.', weak: 'EMP gegen das Schild, Orbitalschlag, Zeitverzerrung.' },
   boss2: { strong: 'Sehr zäh, legt Türme mit Störimpulsen lahm.', weak: 'Türme mit großer Reichweite weit vom Weg, Schienenkanone, Orbitalschlag.' },
 };
-export const ENEMY_UNLOCK = { swarm: 1, tank: 3, flyer: 4, shield: 5, splitter: 6, phantom: 7 };
+export const ENEMY_UNLOCK = { swarm: 1, tank: 3, flyer: 4, shield: 5, splitter: 6, phantom: 7, healer: 9, graeber: 12 };
 export const ELITE_INFO = {
   swarm: 'Elite: deutlich schneller.',
+  healer: 'Elite: heilt öfter.',
+  graeber: 'Elite: gräbt sich öfter ein.',
   tank: 'Elite: repariert sich selbst.',
   shield: 'Elite: schützt Nachbarn mit Schilden.',
   phantom: 'Elite: springt plötzlich nach vorn.',
@@ -272,7 +278,7 @@ export const ACHIEVEMENTS = [
   { id: 'daily', name: 'Tagesgeschäft', desc: 'Schließe eine tägliche Herausforderung ab.' },
   { id: 'kachel10', name: 'Frontarbeiter', desc: 'Erreiche Welle 10 im Frontbau.' },
   { id: 'kachelwin', name: 'Baumeister der Front', desc: 'Gewinne eine Partie Frontbau.' },
-  { id: 'kachelweg', name: 'Langer Marsch', desc: 'Baue im Frontbau einen Weg aus 40 Kacheln.' },
+  { id: 'kachelweg', name: 'Langer Marsch', desc: 'Baue im Frontbau einen Weg aus 40 Kästchen.' },
   { id: 'research5', name: 'Forschungsleitung', desc: 'Schalte 5 Forschungen frei.' },
   { id: 'chain6', name: 'Kettenreaktion', desc: 'Ein Blitz trifft 6 Gegner auf einmal.' },
   { id: 'rich', name: 'Großverdiener', desc: 'Verdiene 5.000 Credits in einem Spiel.' },

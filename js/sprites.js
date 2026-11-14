@@ -170,6 +170,33 @@ export function drawEnemyShape(g, type, r, col, elite, res = 1, frame = 0) {
       break;
     }
   }
+  if (type === 'healer') {
+    // Sanitätsdrohne: runder Körper, vier Stelzen, grünes Kreuz
+    g.strokeStyle = '#1b2a22'; g.lineWidth = r * 0.14;
+    for (let i = 0; i < 4; i++) { const a = i * 1.571 + 0.785 + f * 0.12; g.beginPath(); g.moveTo(Math.cos(a) * r * 0.4, Math.sin(a) * r * 0.4); g.lineTo(Math.cos(a) * r * 1.1, Math.sin(a) * r * 1.1); g.stroke(); }
+    g.fillStyle = rshade(g, 0, 0, r * 0.85, mix(col, '#1a2a24', 0.55)); g.beginPath(); g.arc(0, 0, r * 0.82, 0, 7); g.fill();
+    g.strokeStyle = rgba(col, 0.9); g.lineWidth = lw; g.stroke();
+    g.fillStyle = rgba(col, 0.25); g.beginPath(); g.arc(0, 0, r * (1.05 + frame * 0.08), 0, 7); g.fill();
+    neon(g, col, 12 * res); g.fillStyle = '#eafff4';
+    g.fillRect(-r * 0.12, -r * 0.42, r * 0.24, r * 0.84); g.fillRect(-r * 0.42, -r * 0.12, r * 0.84, r * 0.24);
+    g.shadowBlur = 0;
+  }
+  if (type === 'graeber') {
+    // Gräber: gepanzerter Wurm mit Bohrkopf
+    for (let i = 3; i >= 1; i--) {
+      const x = -i * r * 0.42, y = Math.sin(i * 1.3 + frame * 1.5) * r * 0.12, rr = r * (0.62 - i * 0.06);
+      g.fillStyle = rshade(g, x, y, rr, mix(col, '#2a1f14', 0.4)); g.beginPath(); g.arc(x, y, rr, 0, 7); g.fill();
+      g.strokeStyle = rgba('#000000', 0.45); g.lineWidth = lw * 0.8; g.stroke();
+    }
+    g.fillStyle = rshade(g, r * 0.1, 0, r * 0.66, col); g.beginPath(); g.arc(r * 0.1, 0, r * 0.64, 0, 7); g.fill();
+    g.strokeStyle = rgba('#000000', 0.5); g.lineWidth = lw; g.stroke();
+    // Bohrkopf
+    g.fillStyle = shade(g, r * 0.5, -r * 0.4, r * 1.2, r * 0.4, '#8a8f99');
+    g.beginPath(); g.moveTo(r * 0.55, -r * 0.42); g.lineTo(r * 1.3, 0); g.lineTo(r * 0.55, r * 0.42); g.closePath(); g.fill();
+    g.strokeStyle = rgba('#000000', 0.45); g.lineWidth = 1; for (let i = 1; i < 4; i++) { const x = r * (0.55 + i * 0.18); g.beginPath(); g.moveTo(x, -r * 0.42 * (1 - i * 0.25)); g.lineTo(x + r * 0.1 * f, r * 0.42 * (1 - i * 0.25)); g.stroke(); }
+    neon(g, '#ffcf3a', 6 * res); g.fillStyle = '#ffe9a8'; for (const sy of [-1, 1]) { g.beginPath(); g.arc(r * 0.3, sy * r * 0.26, r * 0.09, 0, 7); g.fill(); }
+    g.shadowBlur = 0;
+  }
   if (type === 'boss2') {
     // schwerer Kampfläufer mit vier Beinen
     g.strokeStyle = '#1c1f25'; g.lineWidth = r * 0.16; g.lineCap = 'round';

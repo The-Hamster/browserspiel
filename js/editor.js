@@ -209,7 +209,7 @@ export class Editor {
     g.globalAlpha = 1; g.globalCompositeOperation = 'source-over';
     g.setTransform(1, 0, 0, 1, 0, 0);
     g.drawImage(this.layer, r.wt.tx, r.wt.ty, WORLD_W * r.wt.s, WORLD_H * TILT * r.wt.s);
-    for (const o of [...this.preview.obstacles].sort((a, b) => a.y - b.y)) r.sprUp(obstacleSprite(o, this.preview.biome, r.res), o.x, o.y);
+    for (const o of [...this.preview.obstacles, ...(this.preview.mountains || [])].sort((a, b) => a.y - b.y)) r.sprUp(obstacleSprite(o, this.preview.biome, r.res), o.x, o.y);
     g.globalAlpha = 1;
     r.resetWT();
     g.strokeStyle = 'rgba(255,255,255,0.05)'; g.lineWidth = 1;

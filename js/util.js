@@ -77,3 +77,13 @@ export function el(tag, cls, html) {
   if (html !== undefined) e.innerHTML = html;
   return e;
 }
+
+// Kalenderwoche (ISO) als Schlüssel, z. B. "W2026-46"
+export function weekKey(d = new Date()) {
+  const t = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+  const day = t.getUTCDay() || 7;
+  t.setUTCDate(t.getUTCDate() + 4 - day);
+  const y0 = new Date(Date.UTC(t.getUTCFullYear(), 0, 1));
+  const wk = Math.ceil(((t - y0) / 86400000 + 1) / 7);
+  return `W${t.getUTCFullYear()}-${String(wk).padStart(2, '0')}`;
+}

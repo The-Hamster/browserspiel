@@ -8,7 +8,7 @@ import { Particles, P_GLOW, P_SPARK, P_SMOKE, P_DEBRIS, P_HEAT } from './particl
 import { ci } from './sprites.js';
 import { sfx } from './audio.js';
 import { dist2, clamp, angleLerp, rand, mulberry32, hashString } from './util.js';
-import { startState, kachelDef, drawHand, pathCells } from './kachel.js';
+import { startState, kachelDef, drawHand, pathCells, applyPath, occupied, ckey, KRANGE, SPECIAL_CARDS } from './kachel.js';
 
 // ------------------------------------------------------------------ Karte aufbereiten
 export const CELL = 8;                       // Raster für "frei / belegt" (in Weltpixeln)
@@ -297,7 +297,7 @@ export class Game {
     // Frontbau: Karte entsteht aus dem wachsenden Weg
     if (opts.kachel) {
       this.kstate = startState();
-      this.kachel = { ...opts.kachel, phase: 'choose', hand: null, picks: 2, round: 0, pending: null };
+      this.kachel = { ...opts.kachel, phase: 'choose', hand: null, picks: 2, round: 0, pending: null, crystals: [], riskWave: 0, rerolled: false };
       opts = { ...opts, mode: 'kachel', mapDef: kachelDef(this.kstate, opts.kachel.biome) };
     }
     this.opts = opts;
@@ -306,11 +306,12 @@ export class Game {
     this.daily = opts.daily || null;
     this.progress = opts.progress;
     this.mission = opts.mission || null;
-    this.rules = makeRules(this.mode, { endless: this.endless, mods: this.daily?.mods, banned: this.daily?.banned, difficulty: opts.mission ? opts.mission.difficulty : opts.difficulty, mission: opts.mission, fixedMittel: !!(opts.kachel && opts.kachel.daily) });
+    this.rules = makeRules(this.mode, { endless: this.endless, mods: this.daily?.mods, banned: this.daily?.banned, weekly: !!this.daily?.weekly, difficulty: opts.mission ? opts.mission.difficulty : opts.difficulty, mission: opts.mission, fixedMittel: !!(opts.kachel && opts.kachel.daily) });
     this.difficulty = this.rules.difficulty;
     this.res = new Set(this.rules.research ? (opts.research || []) : []);
     this.mapDef = opts.mapDef;
     this.map = buildMap(opts.mapDef);
+    if (this.kachel) this.map.kTiles = new Map();
     // lange Wege: mehr Zeit zwischen den Wellen, damit sich nicht zu viele Wellen stauen
     const longest = Math.max(...this.map.paths.map(p => p.total)) / TILE;
     this.rules.countdown = Math.round(this.rules.countdown * clamp(longest / 40, 1, 1.9));
@@ -362,7 +363,7 @@ export class Game {
   toast(text, kind = '') { this.emit({ t: 'toast', text, kind }); }
   announce(title, sub = '', kind = '') { this.emit({ t: 'announce', title, sub, kind }); }
   tip(id) {
-    if (this.kachel) { if (id === 'build') id = 'kachel'; else if (id === 'start' || id === 'upgrade') return; }
+    if (this.kachel) { if (id === 'build') id = 'kintro1'; else if (id === 'start' || id === 'upgrade') return; }
     const p = this.progress;
     if (!p || !p.settings.tips || p.tips[id]) return;
     p.tips[id] = 1;
@@ -378,40 +379,83 @@ export class Game {
   pan(x) { return (x / WORLD_W) * 1.4 - 0.7; }
   addShake(a) { this.shake = Math.min(18, this.shake + a); }
 
-  // ---------------------------------------------------------------- Frontbau (Karten)
+  // ---------------------------------------------------------------- Frontbau (Karten im Raster)
+  kCell(x, y) { return [Math.floor(x / TILE), Math.floor(y / TILE)]; }
+  kSnap(x, y) { const [cx, cy] = this.kCell(x, y); return { x: (cx + 0.5) * TILE, y: (cy + 0.5) * TILE }; }
+  // Kästchen, die Türme und Kristalle belegen
+  kBlocked() {
+    const s = this.towers.map(t => ckey(...this.kCell(t.x, t.y)));
+    for (const [x, y] of this.kachel.crystals) s.push(ckey(x, y));
+    return s;
+  }
+  kCellFree(x, y) {
+    const [cx, cy] = this.kCell(x, y);
+    if (occupied(this.kstate, this.kBlocked()).has(ckey(cx, cy))) return false;
+    const c = this.kSnap(x, y);
+    return mapFree(this.map, c.x, c.y, 18);
+  }
+  kRebuild() {
+    const k = this.kachel;
+    this.mapDef = kachelDef(this.kstate, k.biome, k.crystals);
+    this.map = buildMap(this.mapDef);
+    this.map.kTiles = new Map((this.mapDef.kTiles || []).map(([x, y, t]) => [ckey(x, y), t]));
+    if (this.wave < this.totalWaves) this.nextWaveDef = makeWave(this.wave + 1, this.seed, this.rules, this.map.paths.length);
+    this.recomputeAuras();
+  }
   kachelHand() {
     const k = this.kachel;
     if (!k || k.phase !== 'choose') return null;
-    if (!k.hand) k.hand = drawHand(k.seed, k.round, k.deck, this.kstate, this.towers);
+    if (!k.hand) k.hand = drawHand(k.seed, k.round, k.deck, this.kstate, this.kBlocked(), k.rerolled ? ':neu' : '');
     return k.hand;
   }
-  kachelPathPreview(i) {
-    const k = this.kachel, c = k && k.hand && k.hand[i];
-    if (!c || c.kind !== 'path') return null;
-    return pathCells(this.kstate, c.id, this.towers);
+  // passt das Wegstück an Spitze `tip`? (bei -1: erste passende Spitze)
+  kachelTipFor(i, tip = -1) {
+    const c = this.kachel.hand && this.kachel.hand[i];
+    if (!c || c.kind !== 'path') return -1;
+    const bl = this.kBlocked();
+    if (tip >= 0 && pathCells(this.kstate, c.id, bl, tip)) return tip;
+    for (let t = 0; t < this.kstate.tips.length; t++) if (pathCells(this.kstate, c.id, bl, t)) return t;
+    return -1;
   }
-  kachelPick(i) {
+  kachelPathPreview(i, tip = -1) {
+    const t = this.kachelTipFor(i, tip);
+    if (t < 0) return null;
+    const res = pathCells(this.kstate, this.kachel.hand[i].id, this.kBlocked(), t);
+    return res && { ...res, tip: t, from: this.kstate.cells[this.kstate.tips[t].i] };
+  }
+  rerollCost() { return 40 + this.wave * 10; }
+  kachelReroll() {
+    const k = this.kachel;
+    if (!k || k.phase !== 'choose' || k.rerolled || k.round === 0) return false;
+    const cost = this.rerollCost();
+    if (this.credits < cost) { this.toast('Nicht genug Credits'); sfx.play('error'); return false; }
+    this.credits -= cost; k.rerolled = true; k.hand = null;
+    sfx.play('click'); this.emit({ t: 'cards' });
+    return true;
+  }
+  kachelPick(i, tip = -1) {
     const k = this.kachel;
     if (!k || k.phase !== 'choose' || !k.hand) return false;
     const c = k.hand[i];
     if (c.kind === 'path') {
-      const res = pathCells(this.kstate, c.id, this.towers);
+      const t = this.kachelTipFor(i, tip);
+      const res = t >= 0 && pathCells(this.kstate, c.id, this.kBlocked(), t);
       if (!res) { this.toast('Dieses Wegstück passt hier nicht'); sfx.play('error'); return false; }
-      this.kstate.cells.push(...res.cells); this.kstate.dir = res.dir; this.kstate.version++;
-      if (this.kstate.cells.length >= 41) this.ach('kachelweg');
-      this.mapDef = kachelDef(this.kstate, k.biome);
-      this.map = buildMap(this.mapDef);
+      applyPath(this.kstate, res, c.id, t);
+      if (this.kstate.cells.length >= 40) this.ach('kachelweg');
+      this.kRebuild();
       sfx.play('build');
-      this.toast(`Weg verlängert: ${this.kstate.cells.length - 1} Kacheln`, 'good');
+      this.toast(res.branch ? 'Der Weg teilt sich – ein zweiter Eingang!' : `Weg verlängert: ${this.kstate.cells.length} Kästchen`, 'good');
       this.kachelDone();
       return true;
     }
-    if (c.kind === 'special') {
+    if (c.kind === 'special' && !SPECIAL_CARDS[c.id].place) {
       const w = Math.max(1, this.wave);
       if (c.id === 'credits') { const n = 100 + w * 18; this.addCredits(n); this.toast(`Nachschub: +${n} Credits`, 'gold'); }
       if (c.id === 'orbital') { this.cooldowns.orbital = 0; this.energy = Math.min(this.energyMax(), this.energy + 50); this.toast('Orbitalschlag bereit', 'good'); }
       if (c.id === 'kern') { const b = this.base; b.maxHp += 15; b.hp = b.maxHp; this.toast('Kern verstärkt und geheilt', 'good'); }
       if (c.id === 'doppel') { k.picks += 1; this.toast('Doppelzug: noch eine Karte', 'gold'); }
+      if (c.id === 'risiko') { k.riskWave = this.wave + 1; this.toast('Risiko: nächste Welle zäher, doppelte Credits', 'warn'); }
       sfx.play('upgrade');
       this.kachelDone();
       return true;
@@ -422,6 +466,16 @@ export class Game {
   kachelPlace(x, y, tower) {
     const k = this.kachel, c = k && k.pending;
     if (!c) return false;
+    if (c.kind === 'special') {
+      if (!this.kCellFree(x, y)) { this.toast('Dieses Kästchen ist belegt'); sfx.play('error'); return false; }
+      k.crystals.push(this.kCell(x, y));
+      this.kRebuild();
+      const p = this.kSnap(x, y);
+      this.particles.burst(p.x, p.y, 24, ci('#d18cff'), 150, 0.6, 5);
+      sfx.play('build');
+      this.kachelDone();
+      return true;
+    }
     if (tower) {
       if (tower.type !== c.id) { this.toast('Nur auf einen gleichen Turm legen'); sfx.play('error'); return false; }
       const n = this.nextTiers(tower);
@@ -432,22 +486,28 @@ export class Game {
       this.kachelDone();
       return tower;
     }
-    if (!this.canBuild(x, y)) { sfx.play('error'); return false; }
+    if (!this.kCellFree(x, y)) { this.toast('Dieses Kästchen ist belegt'); sfx.play('error'); return false; }
+    const p = this.kSnap(x, y);
     this.credits += TOWERS[c.id].tiers[1].cost;
-    const t = this.build(c.id, x, y);
+    const t = this.build(c.id, p.x, p.y);
     if (!t) return false;
     t.spent = 0;
-    if (c.tier === '2') this.upgrade(t, '2', true);
+    if (c.tier === '2' || c.tier === '3') this.upgrade(t, '2', true);
+    if (c.tier === '3') t.freeVariant = true;
     this.kachelDone();
     return t;
   }
   kachelCancel() { const k = this.kachel; if (k && k.phase === 'place') { k.phase = 'choose'; k.pending = null; } }
   kachelDone() {
     const k = this.kachel;
-    k.round++; k.picks--; k.hand = null; k.pending = null;
+    k.round++; k.picks--; k.hand = null; k.pending = null; k.rerolled = false;
     k.phase = k.picks > 0 ? 'choose' : 'ready';
+    if (k.phase === 'ready') this.tip(this.wave === 0 ? 'kintro2' : 'kintro4');
+    else if (k.round === 1) this.tip('kintro3');
     this.emit({ t: 'cards' });
   }
+  // Reichweite in Kästchen (Frontbau)
+  kRangeCells(t) { return KRANGE[t.type] + (tierLevel(t.tier) >= 3 ? 1 : 0) + (t.kRangeAdd || 0); }
 
   // ---------------------------------------------------------------- Kommandant
   spawnHero(level = 1) {
@@ -583,7 +643,8 @@ export class Game {
     const r = this.rules;
     const hs = def.boss ? Math.pow(hpScale(Math.max(1, w)), 0.8) * r.hpMul * r.bossMul : hpScale(Math.max(1, w)) * r.hpMul;
     e.active = true; e.uid = this.uid++; e.type = type; e.def = def; e.elite = elite;
-    e.maxHp = def.hp * hs * (elite ? 1.8 : 1); e.hp = e.maxHp;
+    const risk = this.kachel && this.kachel.riskWave === w ? 1 : 0;
+    e.maxHp = def.hp * hs * (elite ? 1.8 : 1) * (risk ? 1.4 : 1); e.hp = e.maxHp;
     e.maxShield = (def.shield || 0) * hs * (elite && type === 'shield' ? 1.8 : 1); e.shield = e.maxShield;
     e.armor = (def.armor || 0) + r.armorAdd + (elite && type === 'tank' ? 3 : 0) + Math.floor(w / 12);
     e.speed = def.speed * r.speedMul * (elite && type === 'swarm' ? 1.3 : 1) * (1 + Math.min(w, 40) * 0.004);
@@ -592,10 +653,11 @@ export class Game {
     e.path = e.air ? this.map.flyPaths[e.pathIdx] : this.map.paths[e.pathIdx];
     e.dist = dist; e.seg = 0; e.x = e.path.pts[0].x; e.y = e.path.pts[0].y; e.vx = 0; e.vy = 0;
     e.angle = e.path.segs[0].ang;
-    e.reward = Math.round(def.reward * r.rewardMul * (elite ? 1.6 * r.eliteRewardMul : 1) * (1 + w * 0.005));
+    e.reward = Math.round(def.reward * r.rewardMul * (elite ? 1.6 * r.eliteRewardMul : 1) * (1 + w * 0.005) * (risk ? 2 : 1));
     e.dmg = def.dmg; e.cloaked = !!def.cloak; e.revealed = false; e.wasRevealed = false;
     e.slowT = 0; e.slowAmt = 0; e.stunT = 0; e.burnT = 0; e.burnDps = 0; e.burnSrc = null; e.shredT = 0; e.shredAmt = 0; e.markT = 0;
     e.hit = 0; e.shieldHit = 0; e.shootCd = def.shoot ? def.shoot.cd * (0.5 + Math.random()) : 0; e.spawnCd = def.spawn ? def.spawn.cd : 0;
+    e.under = 0; e.healCd = def.heal ? def.heal.cd : 0; e.burrowCd = def.burrow ? def.burrow.cd * (0.5 + Math.random() * 0.7) : 0;
     e.charge = 0; e.chargeTower = null; e.jamCd = def.jam ? def.jam.cd : 0; e.abilCd = 2 + Math.random() * 2; e.wob = Math.random() * 6.28; e.anim = Math.random() * 6.28; e.age = 0; e.freezeCount = 0;
     if (dist > 0) this.updatePos(e, 0);
     this.enemies.push(e);
@@ -616,7 +678,7 @@ export class Game {
   }
 
   damageEnemy(e, amt, src, o) {
-    if (!e.active) return 0;
+    if (!e.active || e.under > 0) return 0;
     if (e.markT > 0) amt *= 1.15;
     if (src && src.buffs) amt *= src.buffs.dmgMul;
     let dealt = 0;
@@ -694,7 +756,7 @@ export class Game {
     this.emit({ t: 'basehit' });
     sfx.play('basehit');
     this.particles.burst(b.x, b.y, 20, C.red, 200, 0.5, 6);
-    if (!b.alarmed && b.hp < b.maxHp * 0.3) { b.alarmed = true; sfx.play('alarm'); this.announce('KERN KRITISCH', 'Reparaturdrohnen einsetzen!', 'warn'); }
+    if (!b.alarmed && b.hp < b.maxHp * 0.3) { b.alarmed = true; sfx.play('alarm'); this.announce('KERN KRITISCH', this.rules.repair ? 'Reparaturdrohnen einsetzen!' : 'Mehr Türme an den Weg, Orbitalschlag nutzen!', 'warn'); }
     if (b.hp > b.maxHp * 0.5) b.alarmed = false;
     this.tip('basehit');
     if (b.hp <= 0) { b.hp = 0; this.endGame(false); }
@@ -707,6 +769,7 @@ export class Game {
     return best;
   }
   canBuild(x, y) {
+    if (this.kachel) return this.kCellFree(x, y);
     if (!mapFree(this.map, x, y)) return false;
     for (const t of this.towers) if (dist2(t.x, t.y, x, y) < (TOWER_R * 2 + 4) ** 2) return false;
     return true;
@@ -797,6 +860,23 @@ export class Game {
       }
     }
     for (const t of this.towers) if (t.shield > t.buffs.shieldCap) t.shield = t.buffs.shieldCap;
+    // ohne Reparatur schützt der Schildgenerator nichts – er beschleunigt dann seine Nachbarn
+    if (!this.rules.repair) for (const s of this.towers) if (s.spec.kind === 'shieldgen') {
+      const R2 = ((this.kachel ? 1.5 : s.spec.range) * TILE) ** 2, add = 0.06 + 0.04 * tierLevel(s.tier);
+      for (const t of this.towers) if (t !== s && dist2(s.x, s.y, t.x, t.y) <= R2) t.buffs.rateMul = Math.max(t.buffs.rateMul, 1 + add);
+    }
+    // Frontbau: Nachbar-Bonus im Raster, Radar stärkt die 8 Kästchen um sich, Kristalle geben Reichweite
+    if (this.kachel) {
+      const N2 = (1.5 * TILE) ** 2;
+      for (const t of this.towers) {
+        let same = 0, radar = false;
+        for (const o of this.towers) if (o !== t && dist2(o.x, o.y, t.x, t.y) <= N2) { if (o.type === t.type) same++; if (o.type === 'radar') radar = true; }
+        t.kSame = Math.min(3, same); t.kRadar = radar;
+        t.buffs.dmgMul *= (1 + 0.1 * t.kSame) * (radar ? 1.15 : 1);
+        const [cx, cy] = this.kCell(t.x, t.y);
+        t.kRangeAdd = this.kachel.crystals.some(([x, y]) => Math.abs(x - cx) <= 1 && Math.abs(y - cy) <= 1) ? 1 : 0;
+      }
+    }
     // Kombi-Effekte
     const CR2 = (COMBO_RANGE * TILE) ** 2;
     for (const t of this.towers) {
@@ -827,6 +907,7 @@ export class Game {
     }
   }
   towerRange(t) {
+    if (this.kachel) return (this.kRangeCells(t) + 0.5) * TILE;
     let r = t.spec.range * TILE * t.buffs.rangeMul;
     if (this.res.has('a5') && t.spec.kind !== 'shieldgen') r *= 1.08;
     if (this.activeEvent?.type === 'sand' && t.spec.kind !== 'shieldgen' && t.spec.kind !== 'radar') r *= 0.75;
@@ -859,7 +940,7 @@ export class Game {
     }
   }
 
-  canSee(e) { return !e.cloaked || e.revealed; }
+  canSee(e) { return (!e.cloaked || e.revealed) && !(e.under > 0); }
   pickTarget(t, range, out, n) {
     const sp = t.spec, R2 = range * range;
     out.length = 0;
@@ -868,7 +949,7 @@ export class Game {
     for (const e of this.enemies) {
       if (!e.active) continue;
       if (e.air ? !sp.air : !sp.ground) continue;
-      if (e.cloaked && !e.revealed) continue;
+      if ((e.cloaked && !e.revealed) || e.under > 0) continue;
       const d2 = dist2(t.x, t.y, e.x, e.y);
       if (d2 > R2) continue;
       let s;
@@ -1176,6 +1257,7 @@ export class Game {
     if (e.stunT > 0) return 0;
     let f = e.slowT > 0 ? 1 - e.slowAmt : 1;
     if (this.warpT > 0) f *= e.boss ? 0.7 : 0.5;
+    if (e.under > 0) f *= 1.4;
     return f;
   }
 
@@ -1361,7 +1443,7 @@ export class Game {
       if (this.wave >= this.totalWaves) this.endGame(true);
       else {
         if (this.kachel && this.wave >= 10) this.ach('kachel10');
-        if (this.kachel) { this.kachel.phase = 'choose'; this.kachel.picks = 1; this.kachel.hand = null; this.emit({ t: 'cards' }); }
+        if (this.kachel) { this.kachel.phase = 'choose'; this.kachel.picks = 1; this.kachel.hand = null; this.kachel.rerolled = false; this.emit({ t: 'cards' }); }
         this.emit({ t: 'cleared' });
       }
     }
@@ -1382,7 +1464,38 @@ export class Game {
       if (!e.active) return;
     }
     if (e.elite && e.type === 'tank') e.hp = Math.min(e.maxHp, e.hp + e.maxHp * 0.015 * dt);
-    const f = this.speedFactor(e);
+    // Heiler: heilt Gegner in der Nähe
+    if (def.heal && e.stunT <= 0) {
+      e.healCd -= dt;
+      if (e.healCd <= 0) {
+        e.healCd = def.heal.cd * (e.elite ? 0.65 : 1);
+        const R2 = (def.heal.range * TILE) ** 2;
+        let n = 0;
+        for (const o of this.enemies) if (o.active && !o.boss && o.hp < o.maxHp && dist2(o.x, o.y, e.x, e.y) <= R2) { o.hp = Math.min(o.maxHp, o.hp + o.maxHp * def.heal.pct); n++; this.particles.spawn(o.x, o.y - 6, 0, -40, 0.5, 4, C.green, P_GLOW, 1); }
+        if (n) this.rings.push({ x: e.x, y: e.y, r0: 8, r1: def.heal.range * TILE, life: 0.55, max: 0.55, color: '#5dffb0', w: 2 });
+      }
+    }
+    // Gräber: zeitweise unter der Erde
+    if (def.burrow) {
+      if (e.under > 0) {
+        e.under -= dt;
+        if (Math.random() < dt * 12) this.particles.spawn(e.x + rand(-8, 8), e.y + rand(-6, 6), rand(-20, 20), rand(-30, -5), 0.5, 4, C.sand, P_DEBRIS, 1);
+        if (e.under <= 0) this.particles.burst(e.x, e.y, 12, C.sand, 90, 0.5, 4);
+      } else if (e.stunT <= 0) {
+        e.burrowCd -= dt;
+        if (e.burrowCd <= 0) { e.burrowCd = def.burrow.cd * (e.elite ? 0.6 : 1); e.under = def.burrow.dur; this.particles.burst(e.x, e.y, 14, C.sand, 100, 0.5, 4); }
+      }
+    }
+    let tile = null;
+    if (this.map.kTiles && this.map.kTiles.size && !e.air) {
+      tile = this.map.kTiles.get(ckey(Math.floor(e.x / TILE), Math.floor(e.y / TILE)));
+      if (tile === 'glut') {
+        this.damageEnemy(e, (5 + this.wave * 1.2) * dt, null);
+        if (Math.random() < dt * 10) this.particles.spawn(e.x + rand(-6, 6), e.y + rand(-6, 6), rand(-10, 10), rand(-60, -20), 0.5, 4, C.orange, P_GLOW, 1);
+        if (!e.active) return;
+      }
+    }
+    const f = this.speedFactor(e) * (tile === 'sumpf' ? 0.6 : 1);
     e.dist += e.speed * f * dt;
     if (e.dist >= e.path.total) {
       e.active = false;

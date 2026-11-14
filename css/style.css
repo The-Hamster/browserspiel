@@ -411,7 +411,6 @@ svg { display: block; }
 .kcard .kic img, .kcard .kic svg { width: 64px; height: 64px; }
 .kcard b { font-size: 13px; }
 .kcard small { font-size: 11px; color: #a9b6ca; line-height: 1.35; }
-.kcard.st2::after { content: "★"; position: absolute; right: 9px; top: 6px; color: var(--gold); font-size: 13px; }
 @media (max-height: 500px) { .kcard { min-height: 0; padding: 6px 8px 8px; } .kcard .kic { width: 40px; height: 40px; margin-top: 8px; } .kcard .kic img, .kcard .kic svg { width: 40px; height: 40px; } .kcard small { display: none; } }
 .deckgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; margin: 6px 0 14px; }
 .deckcard { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 10px; border: 1px solid var(--line); background: var(--raise); color: var(--text); font-size: 12px; text-align: left; }
@@ -422,3 +421,23 @@ svg { display: block; }
 .deckcard > span { min-width: 0; overflow-wrap: anywhere; }
 .sectlabel2 { font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--dim); margin: 8px 0 2px; }
 @keyframes khand { from { opacity: 0; } }
+
+.kcard { border-color: color-mix(in srgb, var(--rc, #8a96ab) 55%, transparent); }
+.kcard.rar1 { box-shadow: 0 0 0 1px color-mix(in srgb, var(--rc) 40%, transparent), 0 10px 28px rgba(0, 0, 0, 0.55); }
+.kcard.rar2 { background: linear-gradient(180deg, rgba(48, 30, 72, 0.97), rgba(14, 10, 24, 0.97)); box-shadow: 0 0 0 1px color-mix(in srgb, var(--rc) 60%, transparent), 0 0 22px color-mix(in srgb, var(--rc) 30%, transparent), 0 10px 28px rgba(0, 0, 0, 0.55); }
+.kcard .krar { position: absolute; right: 8px; top: 7px; font: 600 9px/1 var(--mono); letter-spacing: 0.1em; text-transform: uppercase; color: var(--rc); }
+#cardhand .khead .seg button { height: 22px; font-size: 11px; }
+#cardhand .khead .reroll[disabled] { opacity: 0.45; cursor: default; }
+/* Farbhilfe */
+body.cb { --green: #4fb3ff; --red: #ff9a3c; }
+body.cb #hHpBar { background: #4fb3ff; }
+/* Auswertung nach dem Spiel */
+.dmgchart { margin: 12px 0 4px; display: flex; flex-direction: column; gap: 5px; }
+.dbar { display: grid; grid-template-columns: 26px 128px 1fr 64px 38px; align-items: center; gap: 8px; font-size: 12px; }
+.dbar img { width: 26px; height: 26px; }
+.dbar .dn small { display: block; color: var(--dim); font-size: 10px; }
+.dbar .dtrack { height: 10px; border-radius: 5px; background: rgba(255, 255, 255, 0.06); overflow: hidden; }
+.dbar .dtrack div { height: 100%; border-radius: 5px; box-shadow: 0 0 8px currentColor; }
+.dbar b { font: 600 12px var(--mono); text-align: right; }
+.dbar .dp { color: var(--dim); font: 11px var(--mono); text-align: right; }
+@media (max-width: 700px) { .dbar { grid-template-columns: 22px 90px 1fr 54px; } .dbar .dp { display: none; } }

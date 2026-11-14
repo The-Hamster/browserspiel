@@ -276,6 +276,32 @@ export function drawTerrain(g, map, opts = {}) {
       g.fillStyle = mix(B.roadEdge, '#ffffff', 0.25); g.beginPath(); g.arc(q.x, q.y, r, 0, 7); g.fill();
     }
   }
+  // Frontbau: Sumpf- und Glutkästchen (auf der Straße, Form wie ein Kästchen)
+  for (const [x, y, t] of (map.def && map.def.kTiles) || []) {
+    const x0 = x * 64 + 5, y0 = y * 64 + 5, cx = x0 + 27, cy = y0 + 27, h = (x * 73 + y * 37) % 97;
+    g.save(); roundRect(g, x0, y0, 54, 54, 12); g.clip();
+    if (t === 'sumpf') {
+      g.fillStyle = 'rgba(36,62,34,0.82)'; g.fillRect(x0, y0, 54, 54);
+      g.fillStyle = 'rgba(90,140,70,0.35)';
+      for (let i = 0; i < 6; i++) { g.beginPath(); g.ellipse(x0 + ((h * (i + 3)) % 46) + 4, y0 + ((h * (i + 7) * 3) % 46) + 4, 4 + (i % 3) * 2, 2.5 + (i % 2), 0, 0, 7); g.fill(); }
+      g.strokeStyle = 'rgba(170,220,140,0.3)'; g.lineWidth = 1.2;
+      for (let i = 0; i < 3; i++) { g.beginPath(); g.arc(x0 + 10 + ((h * (i + 2)) % 34), y0 + 10 + ((h * (i + 5)) % 34), 2.5, 0, 7); g.stroke(); }
+    } else {
+      g.fillStyle = 'rgba(48,14,8,0.78)'; g.fillRect(x0, y0, 54, 54);
+      g.shadowColor = '#ff6b2a'; g.shadowBlur = 8;
+      g.strokeStyle = 'rgba(255,140,50,0.9)'; g.lineWidth = 2; g.lineCap = 'round';
+      for (let i = 0; i < 4; i++) {
+        const a0 = (h + i * 97) % 628 / 100, r1 = 8 + (i * 5) % 12;
+        g.beginPath(); g.moveTo(cx + Math.cos(a0) * 4, cy + Math.sin(a0) * 4);
+        g.lineTo(cx + Math.cos(a0 + 0.3) * r1, cy + Math.sin(a0 + 0.3) * r1);
+        g.lineTo(cx + Math.cos(a0 - 0.1) * 26, cy + Math.sin(a0 - 0.1) * 26); g.stroke();
+      }
+      g.shadowBlur = 0;
+      const gr = g.createRadialGradient(cx, cy, 0, cx, cy, 20); gr.addColorStop(0, 'rgba(255,170,60,0.45)'); gr.addColorStop(1, 'rgba(255,90,30,0)');
+      g.fillStyle = gr; g.fillRect(x0, y0, 54, 54);
+    }
+    g.restore();
+  }
   // Hindernisse + große Pflanzen (von oben nach unten für korrekte Überdeckung)
   if (!opts.upright) {
     const big = [...map.obstacles, ...map.deco.filter(d => d.block)].sort((a, b) => a.y - b.y);
