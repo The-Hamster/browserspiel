@@ -416,7 +416,7 @@ export function towerIcon(type, tier = '1') {
   g.scale(sc, sc);
   g.drawImage(body.c, -body.ax, -body.ay, body.w, body.h);
   g.save(); g.translate(0, -body.top); g.scale(1, TILT); g.rotate(-0.6);
-  const L = TOWER_LOOK[type], hs = L.shape === 'mast' ? 0.8 : L.R < 18 ? 0.9 : 1.08;
+  const L = TOWER_LOOK[type], hs = headScale(type);
   g.scale(hs, hs);
   drawTowerHead(g, type, tier, 2);
   g.restore();
@@ -479,9 +479,10 @@ function cylinder(g, R, H, wall, top, accent, y0 = 0) {
   g.fillStyle = tg; g.beginPath(); g.ellipse(0, y0 - H, R, ry, 0, 0, 7); g.fill();
   g.strokeStyle = 'rgba(255,255,255,0.18)'; g.lineWidth = 1; g.stroke();
 }
+export function headScale(type) { const L = TOWER_LOOK[type]; return L.shape === 'mast' ? 0.62 : Math.max(0.56, Math.min(0.85, L.R / 19)); }
 export function towerDims(type, tier) {
   const L = TOWER_LOOK[type], lvl = tier === '1' ? 1 : tier === '2' ? 2 : 3;
-  return { R: L.R + (lvl - 1) * 1.6, H: L.H + (lvl - 1) * 5, lvl };
+  return { R: L.R + (lvl - 1) * 1, H: L.H + (lvl - 1) * 6, lvl };
 }
 
 // Gebäude-Sprite: Anker (ax, ay) = Fußpunkt
@@ -496,10 +497,10 @@ export function towerBodySprite(type, tier, res) {
   const c = mk(w * res, h * res), g = c.getContext('2d');
   g.scale(res, res); g.translate(ax, ay);
   // Schatten nach hinten rechts
-  g.fillStyle = 'rgba(0,0,0,0.38)';
-  g.beginPath(); g.ellipse(R * 0.35 + H * 0.25, -R * 0.1 * TILT, R * 1.15 + H * 0.2, R * TILT * 0.9, 0, 0, 7); g.fill();
+  g.fillStyle = 'rgba(0,0,0,0.32)';
+  g.beginPath(); g.ellipse(R * 0.4 + H * 0.28, -R * 0.15 * TILT, R + H * 0.24, R * TILT * 0.75, -0.12, 0, 7); g.fill();
   // Bodenplatte
-  const pr = R + 7;
+  const pr = R + 4;
   g.fillStyle = 'rgba(0,0,0,0.3)'; g.beginPath(); g.ellipse(2, 3, pr, pr * TILT, 0, 0, 7); g.fill();
   g.fillStyle = shade(g, -pr, -pr * TILT, pr, pr * TILT, '#3a414c', 0.5);
   poly2(g, 8, pr, Math.PI / 8); g.fill();
@@ -556,9 +557,24 @@ export function obstacleSprite(o, B, res) {
   const rng = (() => { let a = Math.round(o.x * 13 + o.y * 7) >>> 0; return () => { a = (a * 1664525 + 1013904223) >>> 0; return a / 4294967296; }; })();
   g.fillStyle = 'rgba(0,0,0,0.38)'; g.beginPath(); g.ellipse(r * 0.5, -r * 0.1, r * 1.25, r * TILT * 0.9, 0, 0, 7); g.fill();
   if (o.kind === 'rock') {
-    const n = 7, pts = [];
-    for (let i = 0; i < n; i++) { const a = o.rot + i / n * Math.PI * 2, rr = r * (0.75 + rng() * 0.3); pts.push([Math.cos(a) * rr, Math.sin(a) * rr]); }
-    prism(g, pts, r * 0.75, B.rock, mix(B.rock, '#ffffff', 0.15), null);
+    // flacher, rundlicher Felsbrocken: niedrige Flanke + gewölbte Kuppe
+    const n = 11, pts = [];
+    for (let i = 0; i < n; i++) { const a = o.rot + i / n * Math.PI * 2, rr = r * (0.8 + rng() * 0.22); pts.push([Math.cos(a) * rr, Math.sin(a) * rr]); }
+    prism(g, pts, r * 0.22, mix(B.rock, '#000000', 0.15), B.rock, null);
+    // Kuppe: hintere Punkte stärker angehoben, Rand weich gerundet
+    const cap = pts.map(([x, y]) => [x * 0.94, y * 0.94 * TILT - r * 0.22 - r * 0.32 * (1 - (y / r + 1) / 2) - r * 0.1]);
+    g.beginPath();
+    for (let i = 0; i <= n; i++) {
+      const a = cap[i % n], b2 = cap[(i + 1) % n];
+      const mx = (a[0] + b2[0]) / 2, my = (a[1] + b2[1]) / 2;
+      if (i === 0) g.moveTo(mx, my); else g.quadraticCurveTo(a[0], a[1], mx, my);
+    }
+    g.closePath();
+    const cg = g.createRadialGradient(-r * 0.3, -r * 0.55, r * 0.1, 0, -r * 0.2, r * 1.1);
+    cg.addColorStop(0, mix(B.rock, '#ffffff', 0.35)); cg.addColorStop(0.55, B.rock); cg.addColorStop(1, mix(B.rock, '#000000', 0.5));
+    g.fillStyle = cg; g.fill();
+    g.strokeStyle = 'rgba(0,0,0,0.3)'; g.lineWidth = 1; g.stroke();
+    g.strokeStyle = 'rgba(255,255,255,0.12)'; g.beginPath(); g.moveTo(-r * 0.5, -r * 0.45); g.quadraticCurveTo(-r * 0.1, -r * 0.75, r * 0.35, -r * 0.5); g.stroke();
   } else if (o.kind === 'crystal') {
     const gl = g.createRadialGradient(0, -r * 0.6, 0, 0, -r * 0.6, r * 1.6);
     gl.addColorStop(0, rgba(B.crystal, 0.35)); gl.addColorStop(1, rgba(B.crystal, 0));

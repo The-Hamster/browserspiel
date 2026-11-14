@@ -12,7 +12,7 @@ import { dist2, clamp, angleLerp, rand, mulberry32, hashString } from './util.js
 // ------------------------------------------------------------------ Karte aufbereiten
 export const CELL = 8;                       // Raster für "frei / belegt" (in Weltpixeln)
 export const GW = Math.ceil(WORLD_W / CELL), GH = Math.ceil(WORLD_H / CELL);
-export const TOWER_R = 25;                   // Platzbedarf eines Turms
+export const TOWER_R = 21;                   // Platzbedarf eines Turms
 export const LANE = 26;                      // halbe Wegbreite inkl. Rand
 
 function makePath(pts) {

@@ -9,7 +9,7 @@ export const WORLD_H = ROWS * TILE;
 export const TILT = 0.78;
 
 export const GAME_TITLE = 'KERNWACHT';
-export const VERSION = '1.0.3';
+export const VERSION = '1.0.4';
 
 // ---------------------------------------------------------------- Türme
 // Stufe '1' → '2' → Variante 'a' | 'b' | ('c' per Forschung). Werte vererben sich.
@@ -111,15 +111,15 @@ export const TOWERS = {
 export const TOWER_ORDER = ['laser', 'plasma', 'rail', 'emp', 'rocket', 'tesla', 'drone', 'shield', 'radar'];
 // Bauform: Grundriss, Radius, Höhe (Weltpixel), Kopfhöhe
 export const TOWER_LOOK = {
-  laser:  { shape: 'hex',     R: 20.7, H: 24, wall: '#2e3a4a' },
-  plasma: { shape: 'round',   R: 25.6, H: 14, wall: '#3a3330' },
-  rail:   { shape: 'rect',    R: 24.4, H: 12,  wall: '#33373f' },
-  emp:    { shape: 'tiers',   R: 23.2, H: 22, wall: '#2c2c48' },
-  rocket: { shape: 'square',  R: 22.0, H: 19, wall: '#383a2c' },
-  tesla:  { shape: 'round',   R: 15.9, H: 40, wall: '#3a2f2a' },
-  drone:  { shape: 'oct',     R: 26.8, H: 11,  wall: '#2b3a34' },
-  shield: { shape: 'diamond', R: 19.5, H: 32, wall: '#2a3450' },
-  radar:  { shape: 'mast',    R: 13.4, H: 49, wall: '#2c3a38' },
+  laser:  { shape: 'hex',     R: 13, H: 30, wall: '#2e3a4a' },
+  plasma: { shape: 'round',   R: 16, H: 17, wall: '#3a3330' },
+  rail:   { shape: 'rect',    R: 15, H: 14, wall: '#33373f' },
+  emp:    { shape: 'tiers',   R: 15, H: 28, wall: '#2c2c48' },
+  rocket: { shape: 'square',  R: 13, H: 25, wall: '#383a2c' },
+  tesla:  { shape: 'round',   R: 10, H: 44, wall: '#3a2f2a' },
+  drone:  { shape: 'oct',     R: 17, H: 13, wall: '#2b3a34' },
+  shield: { shape: 'diamond', R: 12, H: 36, wall: '#2a3450' },
+  radar:  { shape: 'mast',    R: 9,  H: 54, wall: '#2c3a38' },
 };
 // Kombi-Effekte: Turm A in der Nähe von Turm B (Abstand in Feldern)
 export const COMBOS = [

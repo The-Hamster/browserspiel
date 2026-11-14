@@ -1,6 +1,6 @@
 // Zeichnen: Sternenhimmel, Karte, Einheiten, Effekte
 import { TILE, COLS, ROWS, WORLD_W, WORLD_H, TOWERS, ENEMIES, BASE, TILT, TOWER_LOOK } from './data.js';
-import { glow, smoke, enemySprite, towerHeadSprite, towerBodySprite, towerDims, obstacleSprite, mk, clearSpriteCache, PAL, ci, roundRect, tierColor } from './sprites.js';
+import { glow, smoke, enemySprite, towerHeadSprite, towerBodySprite, towerDims, headScale, obstacleSprite, mk, clearSpriteCache, PAL, ci, roundRect, tierColor } from './sprites.js';
 import { P_GLOW, P_SPARK, P_SMOKE, P_DEBRIS, P_HEAT } from './particles.js';
 import { drawTerrain } from './terrain.js';
 import { rgba, mix, mulberry32, hashString, clamp } from './util.js';
@@ -500,7 +500,7 @@ export class Renderer {
     const col = hpF > 0.5 ? '#36f1ff' : hpF > 0.25 ? '#ffcf3a' : '#ff3d5a';
     this.uprightT();
     g.save(); g.translate(b.x, b.y * TILT);
-    const R = 25, H = 44, ry = R * TILT;
+    const R = 19, H = 50, ry = R * TILT;
     // Schatten
     g.fillStyle = 'rgba(0,0,0,0.35)'; g.beginPath(); g.ellipse(14, -2, R + 14, ry + 6, 0, 0, 7); g.fill();
     // Sockelring
@@ -526,7 +526,7 @@ export class Renderer {
     g.drawImage(glow(0), -9, -H - 9, 18, 18);
     // rotierende Ringe
     g.strokeStyle = rgba(col, 0.8); g.lineWidth = 2.5;
-    for (let i = 0; i < 3; i++) { const a = t * 0.9 + i * 2.094; g.beginPath(); g.ellipse(0, -H * 0.5, R + 12, (R + 12) * TILT, 0, a, a + 1.1); g.stroke(); }
+    for (let i = 0; i < 3; i++) { const a = t * 0.9 + i * 2.094; g.beginPath(); g.ellipse(0, -H * 0.5, R + 9, (R + 9) * TILT, 0, a, a + 1.1); g.stroke(); }
     g.globalCompositeOperation = 'source-over';
     g.restore();
     // Kanone obenauf (dreht in der Bodenebene)
@@ -579,8 +579,7 @@ export class Renderer {
       else if (tw.type === 'radar') ang = tw.spin;
       else if (tw.type === 'tesla' || tw.type === 'emp') ang = t * 0.4;
       const rx = rot ? -Math.cos(tw.angle) * tw.recoil * 3 : 0, ry = rot ? -Math.sin(tw.angle) * tw.recoil * 3 : 0;
-      const L = TOWER_LOOK[tw.type];
-      const hs = (L.shape === 'mast' ? 0.8 : L.R < 18 ? 0.9 : 1.08);
+      const hs = headScale(tw.type);
       this.sprR(towerHeadSprite(tw.type, tw.tier, res), tw.x + rx, tw.y + ry, ang, hs, body.top);
       g.globalAlpha = 1;
     }
@@ -610,8 +609,9 @@ export class Renderer {
       }
       // Positionslichter
       const blink = Math.sin(t * 3 + tw.id * 1.7) > 0.2;
-      this.glowAt(ci('#ff3d5a'), tw.x - 12, ty, blink ? 9 : 5, blink ? 0.9 : 0.35);
-      this.glowAt(ci('#5dffb0'), tw.x + 12, ty, !blink ? 9 : 5, !blink ? 0.9 : 0.35);
+      const lx = TOWER_LOOK[tw.type].R * 0.7;
+      this.glowAt(ci('#ff3d5a'), tw.x - lx, ty, blink ? 8 : 4, blink ? 0.9 : 0.35);
+      this.glowAt(ci('#5dffb0'), tw.x + lx, ty, !blink ? 8 : 4, !blink ? 0.9 : 0.35);
       for (const d of tw.drones) this.glowAt(ci('#5dffb0'), d.x, d.y - 22 / TILT, 18, 0.7);
     }
     g.globalCompositeOperation = 'source-over';

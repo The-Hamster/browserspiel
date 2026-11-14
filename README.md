@@ -1,6 +1,6 @@
 # KERNWACHT
 
-**Version 1.0.3**
+**Version 1.0.4**
 
 **Ein Sci-Fi-Tower-Defense-Spiel, das direkt im Browser läuft.**
 
@@ -21,6 +21,10 @@ python3 -m http.server 8000
 Danach im Browser `http://localhost:8000` öffnen.
 
 Läuft am PC (Maus und Tastatur) und am Handy oder Tablet (Touch, im Querformat).
+
+## Neu in Version 1.0.4
+
+- Türme kleiner und schlanker, stimmigere Proportionen (kleinere Geschützköpfe und Bodenplatten), runde Felsbrocken, schlankerer Reaktor.
 
 ## Neu in Version 1.0.3
 
