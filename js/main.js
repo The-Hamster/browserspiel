@@ -11,12 +11,13 @@ sfx.volume = st.volume; sfx.muted = st.muted; sfx.musicOn = st.music;
 
 const canvas = document.getElementById('c');
 const renderer = new Renderer(canvas);
+renderer.quality = st.quality || 'hoch';
 const ui = new UI(renderer);
 ui.editor = new Editor(renderer, ui);
 document.getElementById('fps').classList.toggle('hidden', !st.showFps);
 
 let resizeT = 0;
-const onResize = () => { clearTimeout(resizeT); resizeT = setTimeout(() => { ui.layout(); if (ui.selected) ui.renderPanel(); if (ui.mode === 'editor') ui.editor.dirty = true; }, 60); };
+const onResize = () => { clearTimeout(resizeT); resizeT = setTimeout(() => { ui.layout(); if (ui.selected) ui.placePanel(); if (ui.mode === 'editor') ui.editor.dirty = true; }, 60); };
 window.addEventListener('resize', onResize);
 window.addEventListener('orientationchange', onResize);
 ui.layout();

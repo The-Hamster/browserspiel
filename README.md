@@ -22,12 +22,12 @@ Läuft am PC (Maus und Tastatur) und am Handy oder Tablet (Touch, im Querformat)
 
 ## So funktioniert's
 
-- **Türme bauen:** Rechts einen Turm wählen und auf eine leuchtende Baufläche tippen – oder erst die Fläche antippen, dann den Turm.
+- **Türme bauen:** Unten einen Turm wählen und auf einen freien Platz neben dem Weg tippen – oder erst den Platz antippen, dann den Turm. Beim Bauen wird der freie Bereich dezent grün markiert.
 - **Welle starten:** Oben „Welle starten“. Danach kommen die Wellen von selbst. Wer früher startet, bekommt Bonus-Credits.
-- **Aufrüsten:** Einen Turm antippen. Jeder Turm hat 3 Stufen, auf Stufe 3 wählst du eine von zwei Spezialisierungen. Dort kannst du auch verkaufen und das Ziel wählen (Erster, Stärkster, Nächster).
+- **Aufrüsten:** Einen Turm antippen – das Fenster öffnet sich direkt daneben. Jeder Turm hat 3 Stufen, auf Stufe 3 wählst du eine von zwei Spezialisierungen. Dort kannst du auch verkaufen und das Ziel wählen (Erster, Stärkster, Nächster).
 - **Reaktorkern ausbauen:** Den Kern antippen: Panzerung, Energieschild, Kernkanone, Energiefluss und die Notfall-Pulswelle.
 - **Zwei Währungen:** Credits (durch Abschüsse) für Türme und Ausbau, Energie (lädt sich auf) für Spezialfähigkeiten.
-- **Spezialfähigkeiten** (links): Orbitalschlag, Zeitverzerrung, Reparaturdrohnen und – nach Ausbau – Pulswelle.
+- **Spezialfähigkeiten** (unten links): Orbitalschlag, Zeitverzerrung, Reparaturdrohnen und – nach Ausbau – Pulswelle.
 - Oben siehst du, welche Gegner in der nächsten Welle kommen.
 
 ### Türme
@@ -69,13 +69,16 @@ Schwärmer (viele, schwach) · Belagerer (gepanzert, beschießt Türme) · Schil
 
 Am Handy wird alles angetippt; die Knöpfe sind dafür groß genug.
 
+## Schwierigkeit
+
+Vor jeder Partie wählst du **Leicht · Mittel · Schwer · Experte**. Je höher, desto zäher die Gegner und desto weniger Start-Credits und Kern-Leben – dafür gibt es mehr Punkte. Auf **Leicht** kommen Wellen nur, wenn du sie startest.
+
 ## Die Modi
 
-| | Standard | Experte |
+| | Standard | Advance |
 |---|---|---|
 | Wellen | 30 (Boss alle 10) | 30 (Boss alle 10) |
-| Gegner | normal | zäher, schneller, dazu **Elite-Gegner** mit Sonderfähigkeiten |
-| Start-Credits | 360 | 250 |
+| Gegner | je nach Schwierigkeit | etwas zäher, dazu **Elite-Gegner** mit Sonderfähigkeiten |
 | Tipps für den Einstieg | ja | – |
 | **Kommandant** | – | eigene Einheit: antippen und irgendwohin schicken, kämpft mit, steigt bis Stufe 10 auf, hat 2 Fähigkeiten (Schockgranate, Überladung) |
 | **Karten-Ereignisse** | – | Meteoritenschauer (beschädigt Türme), Sandsturm (weniger Reichweite), Energiesturm (Fähigkeiten schneller bereit) – jeweils vorher angekündigt |
@@ -83,14 +86,18 @@ Am Handy wird alles angetippt; die Knöpfe sind dafür groß genug.
 
 **Endlos-Modus:** Auf jeder Karte zuschaltbar – Wellen ohne Ende, sie werden immer härter.
 
-**Tägliche Herausforderung:** Jeden Tag eine feste Karte, zwei Sonderregeln und dieselben Wellen für alle (20 Wellen, Experte-Regeln ohne Forschungs-Boni).
+**Tägliche Herausforderung:** Jeden Tag eine feste Karte, zwei Sonderregeln und dieselben Wellen für alle (20 Wellen auf „Mittel“ mit Kommandant und Ereignissen, ohne Forschungs-Boni).
 
-**Karten-Editor:** Weg, Startpunkt und Bauflächen selbst setzen, speichern und in beiden Modi spielen.
+**Karten-Editor:** Weg mit runden Kurven, Startpunkt, Landschaft (Glutwüste, Frostebene, Kristallfeld, Giftdschungel) und Hindernisse selbst setzen, speichern und in beiden Modi spielen.
 
 **Erfolge:** 20 Erfolge zum Freischalten.
 
 Rekorde, Forschung, Erfolge, eigene Karten, Einstellungen und der laufende Spielstand (zwischen den Wellen) werden im Browser gespeichert.
 
+## Grafik
+
+Vier Landschaften mit eigener Stimmung (Tag, Dämmerung, Nacht), runde Straßen mit Spuren, Flüsse aus Lava, Eis oder Gift, Licht von Schüssen und Explosionen, Bodennebel, Brandflecken. In den Einstellungen: **Grafik Hoch / Mittel / Niedrig** (am Handy startet das Spiel auf Mittel).
+
 ## Technik in Kürze
 
-Reines HTML, CSS und JavaScript ohne Zusatzbibliotheken und ohne Build-Schritt. Gezeichnet wird mit Canvas 2D, Sounds entstehen mit der Web-Audio-Schnittstelle. Der Aufbau ist in `SCOPE.md` beschrieben.
+Reines HTML, CSS und JavaScript ohne Zusatzbibliotheken und ohne Build-Schritt. Gezeichnet wird mit Canvas 2D, Sounds entstehen mit der Web-Audio-Schnittstelle. Der Aufbau ist in `SCOPE.md` beschrieben, die Grafik-Runde in `GRAFIK.md`.

@@ -17,18 +17,23 @@
 <div id="hud" class="hidden">
   <div id="topbar">
     <button id="btnMenu" class="ib" title="Menü (Esc)" aria-label="Menü"></button>
-    <div class="res credits" title="Credits – für Türme und Ausbau"><i class="ico cred"></i><b id="hCredits">0</b></div>
-    <div class="res energy" title="Energie – für Spezialfähigkeiten"><i class="ico en"></i><b id="hEnergy">0</b></div>
-    <div class="res hp" title="Lebenspunkte des Reaktorkerns"><i class="ico hp"></i><div class="bar"><div id="hHpBar"></div><div id="hShBar"></div></div><b id="hHp">100</b></div>
-    <div class="wave"><span id="hWave">Welle 0</span><small id="hCountdown"></small></div>
+    <div class="stat credits" title="Credits – für Türme und Ausbau"><span class="lbl">Credits</span><b id="hCredits">0</b></div>
+    <div class="stat energy" title="Energie – für Spezialfähigkeiten"><span class="lbl">Energie</span><b id="hEnergy">0</b><div class="mini"><div id="hEnergyBar"></div></div></div>
+    <div class="stat hp" title="Lebenspunkte des Reaktorkerns"><span class="lbl">Kern</span><b id="hHp">100</b><div class="mini"><div id="hHpBar"></div><div id="hShBar"></div></div></div>
+    <div class="stat wave"><span class="lbl" id="hCountdown">bereit</span><b id="hWave">Welle 0</b></div>
     <div id="preview" class="preview" title="Nächste Welle"></div>
+    <div class="grow"></div>
+    <span id="hDiff" class="chip"></span>
     <button id="btnNext" class="next" title="Nächste Welle starten (N)"><span id="nextLabel">Welle starten</span></button>
-    <button id="btnSpeed" class="ib speed" title="Spielgeschwindigkeit (F)">1x</button>
+    <div class="seg speedseg" id="speedSeg" title="Spielgeschwindigkeit (F)"><button data-s="1" class="on">1x</button><button data-s="2">2x</button><button data-s="3">3x</button></div>
     <button id="btnPause" class="ib" title="Pause (Leertaste)" aria-label="Pause"></button>
     <button id="btnMute" class="ib" title="Ton an/aus (M)" aria-label="Ton"></button>
   </div>
-  <div id="leftbar"></div>
-  <div id="buildbar"></div>
+  <div id="bottombar">
+    <div id="abilbar" class="grp"></div>
+    <div class="vsep"></div>
+    <div id="buildbar" class="grp"></div>
+  </div>
   <div id="buildinfo" class="hidden"></div>
   <div id="panel" class="hidden"></div>
   <div id="bossbar" class="hidden"><span id="bossName">Schwarmträger</span><div class="bar"><div id="bossHp"></div><div id="bossSh"></div></div></div>

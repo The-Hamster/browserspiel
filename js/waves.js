@@ -2,14 +2,26 @@
 import { ENEMIES, ENEMY_UNLOCK, DAILY_MODS, MAPS, TOWER_ORDER } from './data.js';
 import { mulberry32, hashString, todayKey, clamp } from './util.js';
 
+export const DIFFICULTIES = {
+  leicht:  { name: 'Leicht',  hpMul: 0.6,  speedMul: 0.95, startCredits: 500, baseHp: 150, bossMul: 0.6, countdown: 30, manual: true,  scoreMul: 0.5,  desc: 'Viel Zeit zum Bauen – Wellen starten nur auf Knopfdruck.' },
+  mittel:  { name: 'Mittel',  hpMul: 0.8,  speedMul: 1,    startCredits: 420, baseHp: 120, bossMul: 0.8, countdown: 25, manual: false, scoreMul: 0.75, desc: 'Ausgewogen für den Einstieg.' },
+  schwer:  { name: 'Schwer',  hpMul: 1.0,  speedMul: 1,    startCredits: 360, baseHp: 100, bossMul: 1,   countdown: 22, manual: false, scoreMul: 1,    desc: 'Für geübte Verteidiger.' },
+  experte: { name: 'Experte', hpMul: 1.35, speedMul: 1.06, startCredits: 260, baseHp: 80,  bossMul: 1.3, countdown: 17, manual: false, scoreMul: 1.5,  desc: 'Gnadenlos. Jeder Fehler zählt.' },
+};
+export const DIFF_ORDER = ['leicht', 'mittel', 'schwer', 'experte'];
+
 export function makeRules(mode, opts = {}) {
+  const d = DIFFICULTIES[mode === 'daily' ? 'mittel' : (opts.difficulty || 'mittel')] || DIFFICULTIES.mittel;
   const r = {
-    mode, hpMul: mode === 'standard' ? 0.9 : 1, speedMul: 1, startCredits: 360, baseHp: 100, elite: false, eliteMul: 1, eliteRewardMul: 1,
-    events: false, eventEvery: 0, hero: false, research: false, totalWaves: 30, countdown: 22,
+    mode, difficulty: mode === 'daily' ? 'mittel' : (opts.difficulty || 'mittel'),
+    hpMul: d.hpMul, speedMul: d.speedMul, startCredits: d.startCredits, baseHp: d.baseHp, bossMul: d.bossMul, manual: d.manual, scoreMul: d.scoreMul,
+    elite: false, eliteMul: 1, eliteRewardMul: 1,
+    events: false, eventEvery: 0, hero: false, research: false, totalWaves: 30, countdown: d.countdown,
     rewardMul: 1, countMul: 1, armorAdd: 0, towerDmgMul: 1, banned: [], mods: [], tutorial: mode === 'standard',
   };
+  // Advance (intern "expert") und Tägliche Herausforderung: Elite, Kommandant, Ereignisse
   if (mode === 'expert' || mode === 'daily') {
-    Object.assign(r, { hpMul: 1.3, speedMul: 1.08, startCredits: 250, baseHp: 80, elite: true, events: true, hero: true, countdown: 17, rewardMul: 0.95 });
+    Object.assign(r, { hpMul: r.hpMul * 1.1, speedMul: r.speedMul * 1.04, elite: true, events: true, hero: true, countdown: Math.max(14, r.countdown - 3), rewardMul: 0.95 });
     r.research = mode === 'expert';
   }
   if (mode === 'daily') {

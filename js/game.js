@@ -1,17 +1,21 @@
 // Simulation: Wellen, Gegner, Türme, Basis, Fähigkeiten, Kommandant, Ereignisse
 import {
   TILE, COLS, ROWS, WORLD_W, WORLD_H, TOWERS, TOWER_ORDER, TOWER_HP, towerSpec, tierLevel, ENEMIES, ELITE_INFO,
-  BASE, BASE_UPGRADES, BASE_UPGRADE_ORDER, ABILITIES, HERO, heroXpNeed,
+  BASE, BASE_UPGRADES, BASE_UPGRADE_ORDER, ABILITIES, HERO, heroXpNeed, BIOMES,
 } from './data.js';
 import { makeRules, makeWave, hpScale } from './waves.js';
-import { Particles, P_GLOW, P_SPARK, P_SMOKE, P_DEBRIS } from './particles.js';
+import { Particles, P_GLOW, P_SPARK, P_SMOKE, P_DEBRIS, P_HEAT } from './particles.js';
 import { ci } from './sprites.js';
 import { sfx } from './audio.js';
-import { dist2, clamp, angleLerp, rand } from './util.js';
+import { dist2, clamp, angleLerp, rand, mulberry32, hashString } from './util.js';
 
 // ------------------------------------------------------------------ Karte aufbereiten
-function makePath(points) {
-  const pts = points.map(([x, y]) => ({ x: (x + 0.5) * TILE, y: (y + 0.5) * TILE }));
+export const CELL = 8;                       // Raster für "frei / belegt" (in Weltpixeln)
+export const GW = Math.ceil(WORLD_W / CELL), GH = Math.ceil(WORLD_H / CELL);
+export const TOWER_R = 22;                   // Platzbedarf eines Turms
+export const LANE = 26;                      // halbe Wegbreite inkl. Rand
+
+function makePath(pts) {
   const cum = [0], segs = [];
   for (let i = 1; i < pts.length; i++) {
     const dx = pts[i].x - pts[i - 1].x, dy = pts[i].y - pts[i - 1].y, len = Math.hypot(dx, dy) || 1;
@@ -21,69 +25,126 @@ function makePath(points) {
   return { pts, cum, segs, total: cum[cum.length - 1] };
 }
 
-export function orthogonalize(wps) {
-  const out = [wps[0].slice()];
-  for (let i = 1; i < wps.length; i++) {
-    const [px, py] = out[out.length - 1], [x, y] = wps[i];
-    if (px === x && py === y) continue;
-    if (px !== x && py !== y) out.push([x, py]);
-    out.push([x, y]);
-  }
-  return out;
-}
-
-export function buildMap(def) {
-  const paths = def.paths.map(p => orthogonalize(p));
-  const idx = (x, y) => y * COLS + x;
-  const inGrid = (x, y) => x >= 0 && y >= 0 && x < COLS && y < ROWS;
-  const pathTiles = new Set();
-  for (const p of paths) {
-    for (let i = 1; i < p.length; i++) {
-      const [ax, ay] = p[i - 1], [bx, by] = p[i];
-      const sx = Math.sign(bx - ax), sy = Math.sign(by - ay);
-      let x = ax, y = ay;
-      for (;;) { if (inGrid(x, y)) pathTiles.add(idx(x, y)); if (x === bx && y === by) break; x += sx; y += sy; }
+// Ecken abrunden: Wegpunkte (Feld-Einheiten) -> feine Punktliste (Weltpixel)
+export function smoothPoints(wps, radius = 1.35) {
+  const P = wps.map(([x, y]) => ({ x: x * TILE, y: y * TILE }));
+  if (P.length < 3) return P;
+  const out = [P[0]];
+  for (let i = 1; i < P.length - 1; i++) {
+    const a = P[i - 1], b = P[i], c = P[i + 1];
+    const l1 = Math.hypot(b.x - a.x, b.y - a.y), l2 = Math.hypot(c.x - b.x, c.y - b.y);
+    if (l1 < 1 || l2 < 1) continue;
+    const r = Math.min(radius * TILE, l1 / 2, l2 / 2);
+    const p1 = { x: b.x + (a.x - b.x) / l1 * r, y: b.y + (a.y - b.y) / l1 * r };
+    const p2 = { x: b.x + (c.x - b.x) / l2 * r, y: b.y + (c.y - b.y) / l2 * r };
+    const n = 10;
+    for (let k = 0; k <= n; k++) {
+      const t = k / n, u = 1 - t;
+      out.push({ x: u * u * p1.x + 2 * u * t * b.x + t * t * p2.x, y: u * u * p1.y + 2 * u * t * b.y + t * t * p2.y });
     }
   }
+  out.push(P[P.length - 1]);
+  // doppelte Punkte entfernen
+  return out.filter((p, i) => i === 0 || Math.hypot(p.x - out[i - 1].x, p.y - out[i - 1].y) > 0.5);
+}
+
+// alte Karten (Feldmitte = x + 0.5) auf neues Format umrechnen
+export function normalizeDef(def) {
+  if (def.v === 2 || !def.custom && MAPS_IDS.has(def.id)) return def;
+  const sh = (p) => [p[0] + 0.5, p[1] + 0.5];
+  return { ...def, v: 2, biome: def.biome || 'kristall', paths: def.paths.map(pp => pp.map(sh)), base: sh(def.base), water: [], obstacles: [] };
+}
+const MAPS_IDS = new Set(['krater', 'zwilling', 'spirale', 'gabel']);
+
+export function buildMap(rawDef) {
+  const def = normalizeDef(rawDef);
+  const biome = BIOMES[def.biome] || BIOMES.kristall;
+  const grid = new Uint8Array(GW * GH);          // 1 = Weg/Wasser/Kern (nie bebaubar), 2 = Hindernis
+  const stamp = (x, y, r, v = 1) => {
+    const x0 = Math.max(0, Math.floor((x - r) / CELL)), x1 = Math.min(GW - 1, Math.floor((x + r) / CELL));
+    const y0 = Math.max(0, Math.floor((y - r) / CELL)), y1 = Math.min(GH - 1, Math.floor((y + r) / CELL));
+    for (let gy = y0; gy <= y1; gy++) for (let gx = x0; gx <= x1; gx++) {
+      const cx = (gx + 0.5) * CELL, cy = (gy + 0.5) * CELL;
+      if ((cx - x) ** 2 + (cy - y) ** 2 <= r * r) { const i = gy * GW + gx; if (grid[i] === 0 || v === 1) grid[i] = v; }
+    }
+  };
+  const stampLine = (pts, r, v = 1) => {
+    for (let i = 1; i < pts.length; i++) {
+      const a = pts[i - 1], b = pts[i], n = Math.max(1, Math.ceil(Math.hypot(b.x - a.x, b.y - a.y) / 5));
+      for (let k = 0; k <= n; k++) stamp(a.x + (b.x - a.x) * k / n, a.y + (b.y - a.y) * k / n, r, v);
+    }
+  };
+  const smooth = (def.paths || []).filter(p => p.length >= 2).map(p => smoothPoints(p));
+  const paths = smooth.map(makePath);
+  for (const p of smooth) stampLine(p, LANE);
+  const water = (def.water || []).map(w => ({ pts: smoothPoints(w.pts, 1.6), w: w.w * TILE }));
+  for (const w of water) stampLine(w.pts, w.w / 2 + 4);
   const [bx, by] = def.base;
-  const blocked = new Set();
-  for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) if (inGrid(bx + dx, by + dy)) blocked.add(idx(bx + dx, by + dy));
-  let pads = new Set();
-  if (def.pads && def.pads.length) {
-    for (const [x, y] of def.pads) if (inGrid(x, y) && !pathTiles.has(idx(x, y)) && !blocked.has(idx(x, y))) pads.add(idx(x, y));
-  } else {
-    pads = autoPads(pathTiles, blocked);
+  const basePos = { x: bx * TILE, y: by * TILE };
+  if (smooth.length) stamp(basePos.x, basePos.y, 78);
+  const obstacles = (def.obstacles || []).map(([x, y, r, kind]) => ({ x: x * TILE, y: y * TILE, r: r * TILE, kind: kind || 'rock', rot: (x * 7 + y * 13) % 6.28 }));
+  for (const o of obstacles) stamp(o.x, o.y, o.r, 2);
+  // Deko (zufällig, aber fest je Karte)
+  const rng = mulberry32(hashString((def.id || 'x') + (def.biome || '')));
+  const deco = [];
+  const freeAt = (x, y, r) => {
+    for (const [dx, dy] of [[0, 0], [r, 0], [-r, 0], [0, r], [0, -r]]) {
+      const gx = Math.floor((x + dx) / CELL), gy = Math.floor((y + dy) / CELL);
+      if (gx < 0 || gy < 0 || gx >= GW || gy >= GH || grid[gy * GW + gx]) return false;
+    }
+    return true;
+  };
+  const nearPath = (x, y, d) => {
+    for (const p of smooth) for (let i = 0; i < p.length; i += 2) if ((p[i].x - x) ** 2 + (p[i].y - y) ** 2 < d * d) return true;
+    return false;
+  };
+  if (!def.noDeco) {
+    // große Pflanzen/Felsen weit weg vom Weg (blockieren; nicht auf eigenen Karten)
+    for (let tries = 0, n = 0; !def.custom && tries < 260 && n < 9; tries++) {
+      const x = 30 + rng() * (WORLD_W - 60), y = 30 + rng() * (WORLD_H - 60), r = 18 + rng() * 16;
+      if (!freeAt(x, y, r + 6) || nearPath(x, y, 120)) continue;
+      const kind = rng() < 0.55 ? 'tree' : rng() < 0.5 ? 'rock' : 'crystal';
+      deco.push({ x, y, r, kind, rot: rng() * 6.28, block: true });
+      stamp(x, y, r, 2); n++;
+    }
+    // kleine Steine, Gras, Splitter (blockieren nicht)
+    for (let tries = 0, n = 0; tries < 900 && n < 140; tries++) {
+      const x = rng() * WORLD_W, y = rng() * WORLD_H, r = 2 + rng() * 6;
+      const gx = Math.floor(x / CELL), gy = Math.floor(y / CELL);
+      if (grid[gy * GW + gx]) continue;
+      const k = rng();
+      deco.push({ x, y, r, kind: k < 0.45 ? 'pebble' : k < 0.8 ? 'grass' : 'shard', rot: rng() * 6.28, block: false });
+      n++;
+    }
   }
-  const mp = paths.map(makePath);
-  const basePos = { x: (bx + 0.5) * TILE, y: (by + 0.5) * TILE };
-  const fly = paths.map(p => {
-    const s = p[0];
-    const sx = clamp(s[0], -1, COLS), sy = clamp(s[1], -1, ROWS);
-    return makePath([[sx, sy], [bx, by]]);
+  const fly = smooth.map(p => {
+    const s0 = p[0];
+    return makePath([{ x: clamp(s0.x, -30, WORLD_W + 30), y: clamp(s0.y, -30, WORLD_H + 30) }, basePos]);
   });
-  return { id: def.id, name: def.name, theme: def.theme, def, paths: mp, flyPaths: fly, rawPaths: paths, base: [bx, by], basePos, pathTiles, pads, blocked };
+  const theme = { ground: biome.ground, ground2: biome.ground2, accent: biome.accent, lane: biome.lane };
+  return { id: def.id, name: def.name, def, biome, theme, paths, flyPaths: fly, smooth, water, obstacles, deco, base: def.base, basePos, grid };
 }
 
-export function autoPads(pathTiles, blocked) {
-  const pads = new Set();
-  for (let y = 0; y < ROWS; y++) for (let x = 0; x < COLS; x++) {
-    const i = y * COLS + x;
-    if (pathTiles.has(i) || blocked.has(i)) continue;
-    let near = false;
-    for (let dy = -1; dy <= 1 && !near; dy++) for (let dx = -1; dx <= 1; dx++) {
-      const nx = x + dx, ny = y + dy;
-      if (nx >= 0 && ny >= 0 && nx < COLS && ny < ROWS && pathTiles.has(ny * COLS + nx)) { near = true; break; }
-    }
-    if (near) pads.add(i);
+// Darf an dieser Stelle (Weltpixel) gebaut werden? (ohne andere Türme)
+export function mapFree(map, x, y, r = TOWER_R) {
+  if (x < r + 2 || y < r + 2 || x > WORLD_W - r - 2 || y > WORLD_H - r - 2) return false;
+  const g = map.grid;
+  for (let k = 0; k < 13; k++) {
+    let dx = 0, dy = 0;
+    if (k > 0 && k <= 8) { const a = k / 8 * Math.PI * 2; dx = Math.cos(a) * r; dy = Math.sin(a) * r; }
+    else if (k > 8) { const a = k / 4 * Math.PI * 2 + 0.4; dx = Math.cos(a) * r * 0.5; dy = Math.sin(a) * r * 0.5; }
+    const gx = Math.floor((x + dx) / CELL), gy = Math.floor((y + dy) / CELL);
+    if (gx < 0 || gy < 0 || gx >= GW || gy >= GH || g[gy * GW + gx]) return false;
   }
-  return pads;
+  return true;
 }
 
 export function posAt(path, d, out) {
   if (d <= 0) { out.x = path.pts[0].x; out.y = path.pts[0].y; return out; }
   const cum = path.cum;
-  let s = 0;
-  while (s < path.segs.length - 1 && cum[s + 1] < d) s++;
+  let lo = 0, hi = path.segs.length - 1;
+  while (lo < hi) { const m = (lo + hi + 1) >> 1; if (cum[m] <= d) lo = m; else hi = m - 1; }
+  const s = lo;
   const seg = path.segs[s], t = Math.min(d - cum[s], seg.len);
   out.x = path.pts[s].x + seg.dx * t; out.y = path.pts[s].y + seg.dy * t;
   return out;
@@ -103,7 +164,8 @@ export class Game {
     this.endless = !!opts.endless;
     this.daily = opts.daily || null;
     this.progress = opts.progress;
-    this.rules = makeRules(this.mode, { endless: this.endless, mods: this.daily?.mods, banned: this.daily?.banned });
+    this.rules = makeRules(this.mode, { endless: this.endless, mods: this.daily?.mods, banned: this.daily?.banned, difficulty: opts.difficulty });
+    this.difficulty = this.rules.difficulty;
     this.res = new Set(this.rules.research ? (opts.research || []) : []);
     this.mapDef = opts.mapDef;
     this.map = buildMap(opts.mapDef);
@@ -125,11 +187,12 @@ export class Game {
     this.base.hp = this.base.maxHp;
     if (this.res.has('b4')) this.applyBaseUpgrade('shield');
 
-    this.towers = []; this.towerAt = new Map(); this.towerId = 1;
+    this.towers = []; this.towerId = 1;
     this.enemies = []; this.enemyPool = []; this.uid = 1;
     this.projectiles = []; this.projPool = [];
     this.rails = []; this.bolts = []; this.rings = []; this.texts = []; this.flashes = []; this.strikes = []; this.meteors = []; this.beams = [];
     this.radars = [];
+    this.lights = []; this.decals = [];
 
     this.wave = 0;
     this.totalWaves = r.totalWaves;
@@ -299,7 +362,7 @@ export class Game {
     const def = ENEMIES[type];
     const e = this.enemyPool.pop() || {};
     const r = this.rules;
-    const hs = hpScale(Math.max(1, w)) * r.hpMul;
+    const hs = type === 'boss' ? Math.pow(hpScale(Math.max(1, w)), 0.8) * r.hpMul * r.bossMul : hpScale(Math.max(1, w)) * r.hpMul;
     e.active = true; e.uid = this.uid++; e.type = type; e.def = def; e.elite = elite;
     e.maxHp = def.hp * hs * (elite ? 1.8 : 1); e.hp = e.maxHp;
     e.maxShield = (def.shield || 0) * hs * (elite && type === 'shield' ? 1.8 : 1); e.shield = e.maxShield;
@@ -314,7 +377,7 @@ export class Game {
     e.dmg = def.dmg; e.cloaked = !!def.cloak; e.revealed = false; e.wasRevealed = false;
     e.slowT = 0; e.slowAmt = 0; e.stunT = 0; e.burnT = 0; e.burnDps = 0; e.burnSrc = null; e.shredT = 0; e.shredAmt = 0; e.markT = 0;
     e.hit = 0; e.shieldHit = 0; e.shootCd = def.shoot ? def.shoot.cd * (0.5 + Math.random()) : 0; e.spawnCd = def.spawn ? def.spawn.cd : 0;
-    e.abilCd = 2 + Math.random() * 2; e.wob = Math.random() * 6.28; e.anim = Math.random() * 6.28; e.age = 0; e.freezeCount = 0;
+    e.charge = 0; e.chargeTower = null; e.abilCd = 2 + Math.random() * 2; e.wob = Math.random() * 6.28; e.anim = Math.random() * 6.28; e.age = 0; e.freezeCount = 0;
     if (dist > 0) this.updatePos(e, 0);
     this.enemies.push(e);
     return e;
@@ -365,7 +428,12 @@ export class Game {
     const big = e.r >= 16;
     P.burst(e.x, e.y, 6 + e.r * 0.8, col, 60 + e.r * 7, 0.45, 5 + e.r * 0.4, P_GLOW, 3);
     P.burst(e.x, e.y, 4 + e.r * 0.4, C.white, 120 + e.r * 8, 0.3, 3, P_SPARK, 2);
-    if (big) { P.burst(e.x, e.y, 6, C.smoke, 40, 1.1, 18, P_SMOKE, 1.5); P.burst(e.x, e.y, 6, col, 160, 0.8, 3, P_DEBRIS, 1.5); }
+    this.lights.push({ x: e.x, y: e.y, r: e.r * 4 + 30, color: col, life: 0.3, max: 0.3 });
+    if (big) {
+      P.burst(e.x, e.y, 6, C.smoke, 40, 1.1, 18, P_SMOKE, 1.5); P.burst(e.x, e.y, 8, col, 170, 0.9, 4, P_DEBRIS, 1.8);
+      P.spawn(e.x, e.y, 0, -18, 1.2, e.r * 2, C.white, P_HEAT, 0.5);
+      if (this.decals.length < 40) this.decals.push({ x: e.x, y: e.y, r: e.r * 1.3 });
+    }
     this.rings.push({ x: e.x, y: e.y, r0: e.r * 0.5, r1: e.r * 2.6, life: 0.35, max: 0.35, color: e.def.color, w: big ? 3 : 2 });
     sfx.play('explode', this.pan(e.x), big ? 1 : 0.5);
     if (big) this.addShake(e.boss ? 16 : 2.5);
@@ -412,25 +480,32 @@ export class Game {
   }
 
   // ---------------------------------------------------------------- Türme
-  isPad(tx, ty) { return tx >= 0 && ty >= 0 && tx < COLS && ty < ROWS && this.map.pads.has(ty * COLS + tx); }
-  canBuild(tx, ty) { return this.isPad(tx, ty) && !this.towerAt.has(ty * COLS + tx); }
+  towerNear(x, y, r = 28) {
+    let best = null, bd = r * r;
+    for (const t of this.towers) { const d = dist2(t.x, t.y, x, y); if (d < bd) { bd = d; best = t; } }
+    return best;
+  }
+  canBuild(x, y) {
+    if (!mapFree(this.map, x, y)) return false;
+    for (const t of this.towers) if (dist2(t.x, t.y, x, y) < (TOWER_R * 2 + 4) ** 2) return false;
+    return true;
+  }
   towerHp() { return TOWER_HP * (this.res.has('a1') ? 1.25 : 1); }
-  build(type, tx, ty) {
+  build(type, x, y) {
     if (this.state !== 'playing') return null;
     if (this.rules.banned.includes(type)) { this.toast('Diese Turmart ist heute gesperrt'); sfx.play('error'); return null; }
-    if (!this.canBuild(tx, ty)) { sfx.play('error'); return null; }
+    if (!this.canBuild(x, y)) { sfx.play('error'); return null; }
     const cost = TOWERS[type].tiers[1].cost;
     if (this.credits < cost) { this.toast('Nicht genug Credits'); sfx.play('error'); return null; }
     this.credits -= cost;
     const t = {
-      id: this.towerId++, type, tier: '1', tx, ty, x: (tx + 0.5) * TILE, y: (ty + 0.5) * TILE, angle: -Math.PI / 2,
+      id: this.towerId++, type, tier: '1', x, y, angle: -Math.PI / 2,
       cd: 0.2, target: null, tuid: 0, mode: 'first', spent: cost, kills: 0, dmg: 0, hp: this.towerHp(), maxHp: this.towerHp(),
       shield: 0, offline: 0, lastHit: -9, hasFired: false, recoil: 0, beams: [], drones: [], pulses: 0, spin: Math.random() * 6, extraShot: 0,
       buffs: { rangeMul: 1, dmgMul: 1, rateMul: 1, shieldCap: 0, shieldRegen: 0 }, built: this.time,
     };
     t.spec = towerSpec(type, '1');
     this.towers.push(t);
-    this.towerAt.set(ty * COLS + tx, t);
     this.stats.towersBuilt++; this.stats.built.add(type);
     if (this.stats.towersBuilt >= 20) this.ach('builder');
     if (this.stats.built.size >= TOWER_ORDER.length) this.ach('all_towers');
@@ -473,7 +548,6 @@ export class Game {
     const v = this.sellValue(t);
     this.credits += v;
     this.towers.splice(this.towers.indexOf(t), 1);
-    this.towerAt.delete(t.ty * COLS + t.tx);
     this.recomputeAuras();
     sfx.play('sell', this.pan(t.x));
     this.particles.burst(t.x, t.y, 14, C.yellow, 100, 0.5, 4);
@@ -576,6 +650,7 @@ export class Game {
   muzzle(t, ang, len, color, size = 1) {
     const x = t.x + Math.cos(ang) * len, y = t.y + Math.sin(ang) * len;
     this.flashes.push({ x, y, ang, life: 0.07, max: 0.07, color, size });
+    if (this.lights.length < 60) this.lights.push({ x, y, r: 26 + size * 14, color, life: 0.08, max: 0.08 });
     return { x, y };
   }
 
@@ -947,6 +1022,7 @@ export class Game {
     }
     if (this.wave > 0 && this.countdown === null && this.wave < this.totalWaves && !this.spawnQueue.length && this.time >= this.spawnEnd) {
       this.countdown = r.countdown;
+      if (r.manual) this.countdownPaused = true;
     }
     if (this.countdown !== null && this.wave > 0 && !this.countdownPaused) {
       this.countdown -= dt;
@@ -1053,6 +1129,21 @@ export class Game {
     this.updatePos(e, dt);
 
     // Fähigkeiten
+    if (e.charge > 0) {
+      // Boss lädt sichtbar auf, bevor er feuert
+      const tw = e.chargeTower;
+      if (!tw || tw.offline > 0 || !this.towers.includes(tw) || e.stunT > 0) { e.charge = 0; e.chargeTower = null; }
+      else {
+        e.charge -= dt;
+        if (e.charge <= 0) {
+          e.chargeTower = null;
+          const p = this.newProj('ebolt', e.x, e.y, null);
+          p.tower = tw; p.tid = tw.id; p.tx = tw.x; p.ty = tw.y; p.speed = 420;
+          p.dmg = def.shoot.dmg * (1 + this.wave * 0.03); p.color = C.red; p.life = 2; p.size = 1.8;
+          sfx.play('ebolt', this.pan(e.x));
+        }
+      }
+    }
     if (def.shoot && e.stunT <= 0) {
       e.shootCd -= dt;
       if (e.shootCd <= 0) {
@@ -1060,6 +1151,7 @@ export class Game {
         const R2 = (def.shoot.range * TILE) ** 2;
         let best = null, bd = R2;
         for (const t of this.towers) { if (t.offline > 0) continue; const d = dist2(e.x, e.y, t.x, t.y); if (d < bd) { bd = d; best = t; } }
+        if (best && def.shoot.charge) { e.charge = def.shoot.charge; e.chargeTower = best; best = null; }
         if (best) {
           const p = this.newProj('ebolt', e.x, e.y, null);
           p.tower = best; p.tid = best.id; p.tx = best.x; p.ty = best.y; p.speed = e.boss ? 380 : 300;
@@ -1206,6 +1298,13 @@ export class Game {
       this.damageEnemy(e, d, src);
     }
     const col = o.color ?? C.orange;
+    this.lights.push({ x, y, r: radius * 1.6 + 40, color: col, life: 0.35, max: 0.35 });
+    if (radius > 28 && this.decals.length < 40) this.decals.push({ x, y, r: radius * 0.75 });
+    if (radius > 40) {
+      this.particles.burst(x, y, 4, C.orange, radius * 1.5, 0.7, radius * 0.45, P_GLOW, 4);
+      for (let k = 0; k < 3; k++) this.particles.spawn(x + rand(-10, 10), y + rand(-6, 6), rand(-6, 6), rand(-26, -14), 1.1, radius * 0.5, C.white, P_HEAT, 0.5);
+      this.particles.burst(x, y, 5, C.amber, 150, 0.9, 4, P_DEBRIS, 2.5);
+    }
     this.particles.burst(x, y, 8 + radius * 0.25, col, radius * 3.2, 0.45, 8, P_GLOW, 3.5);
     this.particles.burst(x, y, 6 + radius * 0.1, C.white, radius * 4, 0.25, 3, P_SPARK, 3);
     if (radius > 50) this.particles.burst(x, y, 3, C.smoke, 30, 1, 14, P_SMOKE, 1.5);
@@ -1331,6 +1430,8 @@ export class Game {
         this.explode(s.x, s.y, s.r, s.dmg, null, { hitAir: true, color: C.orange });
         for (let k = 0; k < 3; k++) this.particles.burst(s.x, s.y, 20, k === 0 ? C.white : C.orange, 300, 0.8, 9);
         this.rings.push({ x: s.x, y: s.y, r0: 10, r1: s.r * 1.6, life: 0.6, max: 0.6, color: '#ffffff', w: 8 });
+        this.lights.push({ x: s.x, y: s.y, r: 320, color: C.orange, life: 0.8, max: 0.8 });
+        this.decals.push({ x: s.x, y: s.y, r: s.r * 1.1 });
         this.addShake(12);
         sfx.play('orbital', this.pan(s.x));
         this.emit({ t: 'flash', color: 'rgba(255,200,150,0.35)' });
@@ -1384,7 +1485,7 @@ export class Game {
   updateFx(dt) {
     this.particles.update(dt);
     const dec = (arr) => { let w = 0; for (let i = 0; i < arr.length; i++) { const o = arr[i]; o.life -= dt; if (o.life > 0) arr[w++] = o; } arr.length = w; };
-    dec(this.rails); dec(this.bolts); dec(this.rings); dec(this.flashes);
+    dec(this.rails); dec(this.bolts); dec(this.rings); dec(this.flashes); dec(this.lights);
     let w = 0;
     for (let i = 0; i < this.texts.length; i++) { const o = this.texts[i]; o.life -= dt; o.y -= 30 * dt; if (o.life > 0) this.texts[w++] = o; }
     this.texts.length = w;
@@ -1394,11 +1495,11 @@ export class Game {
   // ---------------------------------------------------------------- Ende & Wertung
   score() {
     const won = this.state === 'won';
-    return Math.round(this.stats.creditsEarned + this.wave * 120 + this.stats.kills * 2 + (won ? 3000 + this.base.hp * 25 : 0));
+    return Math.round((this.stats.creditsEarned + this.wave * 120 + this.stats.kills * 2 + (won ? 3000 + this.base.hp * 25 : 0)) * this.rules.scoreMul);
   }
   researchEarned() {
     if (this.mode !== 'expert') return 0;
-    return Math.floor(this.clearedUpTo / 2) + this.stats.bossKills * 2 + (this.state === 'won' ? 10 : 0);
+    return Math.round((Math.floor(this.clearedUpTo / 2) + this.stats.bossKills * 2 + (this.state === 'won' ? 10 : 0)) * this.rules.scoreMul);
   }
   endGame(won) {
     if (this.state !== 'playing') return;
@@ -1423,16 +1524,16 @@ export class Game {
   serialize() {
     const b = this.base;
     return {
-      v: 1, mode: this.mode, endless: this.endless, daily: this.daily, mapDef: this.mapDef, research: [...this.res],
+      v: 1, mode: this.mode, difficulty: this.difficulty, endless: this.endless, daily: this.daily, mapDef: this.mapDef, research: [...this.res],
       wave: this.wave, cleared: this.clearedUpTo, credits: this.credits, energy: this.energy,
       base: { hp: b.hp, shield: b.shield, up: { ...b.up } },
-      towers: this.towers.map(t => ({ type: t.type, tier: t.tier, tx: t.tx, ty: t.ty, mode: t.mode, spent: t.spent, kills: t.kills, dmg: t.dmg })),
+      towers: this.towers.map(t => ({ type: t.type, tier: t.tier, x: t.x, y: t.y, mode: t.mode, spent: t.spent, kills: t.kills, dmg: t.dmg })),
       hero: this.hero ? { level: this.hero.level, xp: this.hero.xp } : null,
       stats: { ...this.stats, built: [...this.stats.built] }, savedAt: Date.now(),
     };
   }
   static fromSave(s, progress) {
-    const g = new Game({ mode: s.mode, endless: s.endless, daily: s.daily, mapDef: s.mapDef, research: s.research, progress });
+    const g = new Game({ mode: s.mode, difficulty: s.difficulty || 'schwer', endless: s.endless, daily: s.daily, mapDef: s.mapDef, research: s.research, progress });
     g.events.length = 0;
     // Basis-Ausbau wiederherstellen
     const b = g.base;
@@ -1442,7 +1543,7 @@ export class Game {
     b.hp = s.base.hp; b.shield = s.base.shield;
     for (const ts of s.towers) {
       g.credits = 1e9;
-      const t = g.build(ts.type, ts.tx, ts.ty);
+      const t = ts.x !== undefined ? g.build(ts.type, ts.x, ts.y) : g.build(ts.type, (ts.tx + 0.5) * TILE, (ts.ty + 0.5) * TILE);
       if (!t) continue;
       if (ts.tier !== '1') { t.tier = ts.tier; t.spec = towerSpec(t.type, ts.tier); t.maxHp = g.towerHp() * (1 + 0.15 * (tierLevel(ts.tier) - 1)); t.hp = t.maxHp; }
       t.mode = ts.mode; t.spent = ts.spent; t.kills = ts.kills; t.dmg = ts.dmg; t.hasFired = true;

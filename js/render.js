@@ -1,10 +1,18 @@
 // Zeichnen: Sternenhimmel, Karte, Einheiten, Effekte
 import { TILE, COLS, ROWS, WORLD_W, WORLD_H, TOWERS, ENEMIES, BASE } from './data.js';
-import { glow, smoke, enemySprite, towerBaseSprite, towerHeadSprite, mk, clearSpriteCache, PAL, ci, roundRect, tierColor } from './sprites.js';
-import { P_GLOW, P_SPARK, P_SMOKE, P_DEBRIS } from './particles.js';
+import { glow, smoke, enemySprite, towerBaseSprite, towerHeadSprite, towerHeadShadow, towerLights, mk, clearSpriteCache, PAL, ci, roundRect, tierColor } from './sprites.js';
+import { P_GLOW, P_SPARK, P_SMOKE, P_DEBRIS, P_HEAT } from './particles.js';
+import { drawTerrain } from './terrain.js';
 import { rgba, mix, mulberry32, hashString, clamp } from './util.js';
 
 const ROTATING = { laser: 1, plasma: 1, rail: 1, rocket: 1 };
+// Stimmung je Landschaft: Dunkelheit, Umgebungsfarbe, Farbschleier, Nebel
+const MOOD = {
+  wueste:    { dark: 0.3,  ambient: '#2a0c04', tint: '#ff8a40', tintA: 0.05, fog: 0.07 },
+  eis:       { dark: 0.0,  ambient: '#000000', tint: '#bfe6ff', tintA: 0.05, fog: 0.12 },
+  kristall:  { dark: 0.55, ambient: '#0c0626', tint: '#6a4aff', tintA: 0.05, fog: 0.08 },
+  dschungel: { dark: 0.42, ambient: '#03140a', tint: '#4aff7a', tintA: 0.04, fog: 0.12 },
+};
 
 export class Renderer {
   constructor(canvas) {
@@ -31,7 +39,8 @@ export class Renderer {
     this.scale = Math.min(r.w / WORLD_W, r.h / WORLD_H);
     this.ox = r.x + (r.w - WORLD_W * this.scale) / 2;
     this.oy = r.y + (r.h - WORLD_H * this.scale) / 2;
-    const res = Math.min(3, Math.max(1, Math.ceil(this.scale * dpr * 2) / 2));
+    const cap = this.quality === 'niedrig' ? 1.5 : this.quality === 'mittel' ? 2 : 3;
+    const res = Math.min(cap, Math.max(1, Math.ceil(this.scale * dpr * 2) / 2));
     if (res !== this.res) { this.res = res; clearSpriteCache(); }
     this.buildStars();
     this.mapKey = null;
@@ -41,8 +50,8 @@ export class Renderer {
   // Alle Sprites einmal vorab erzeugen, damit es im Spiel nicht ruckelt
   prewarm() {
     this.prewarmed = true;
-    for (const type of Object.keys(ENEMIES)) { enemySprite(type, false, this.res); if (!ENEMIES[type].boss) enemySprite(type, true, this.res); }
-    for (const type of Object.keys(TOWERS)) for (const tier of Object.keys(TOWERS[type].tiers)) { towerBaseSprite(type, tier, this.res); towerHeadSprite(type, tier, this.res); }
+    for (const type of Object.keys(ENEMIES)) for (const f of [0, 1]) { enemySprite(type, false, this.res, f); if (!ENEMIES[type].boss) enemySprite(type, true, this.res, f); }
+    for (const type of Object.keys(TOWERS)) for (const tier of Object.keys(TOWERS[type].tiers)) { towerBaseSprite(type, tier, this.res); towerHeadSprite(type, tier, this.res); towerHeadShadow(type, tier, this.res); }
     for (let i = 0; i < PAL.length; i++) glow(i);
     smoke();
   }
@@ -151,74 +160,11 @@ export class Renderer {
     const res = exact ? this.scale * this.dpr : this.res;
     const c = mk(WORLD_W * res, WORLD_H * res), g = c.getContext('2d');
     g.scale(res, res);
-    const th = map.theme;
-    const rng = mulberry32(hashString(map.id || 'x'));
-    // Boden
-    g.save();
-    roundRect(g, 0, 0, WORLD_W, WORLD_H, 18); g.clip();
-    const gr = g.createRadialGradient(WORLD_W / 2, WORLD_H / 2, 50, WORLD_W / 2, WORLD_H / 2, WORLD_W * 0.7);
-    gr.addColorStop(0, th.ground2); gr.addColorStop(1, th.ground);
-    g.fillStyle = gr; g.fillRect(0, 0, WORLD_W, WORLD_H);
-    for (let i = 0; i < 220; i++) {
-      const x = rng() * WORLD_W, y = rng() * WORLD_H, r = 3 + rng() * 26;
-      const rg = g.createRadialGradient(x, y, 0, x, y, r);
-      const dark = rng() < 0.5;
-      rg.addColorStop(0, dark ? 'rgba(0,0,0,0.28)' : rgba(th.ground2, 0.9)); rg.addColorStop(1, 'rgba(0,0,0,0)');
-      g.fillStyle = rg; g.beginPath(); g.arc(x, y, r, 0, 7); g.fill();
-    }
-    for (let i = 0; i < 14; i++) { // Krater
-      const x = rng() * WORLD_W, y = rng() * WORLD_H, r = 12 + rng() * 30;
-      g.strokeStyle = 'rgba(255,255,255,0.04)'; g.lineWidth = 3; g.beginPath(); g.arc(x, y, r, Math.PI * 0.9, Math.PI * 1.9); g.stroke();
-      g.strokeStyle = 'rgba(0,0,0,0.3)'; g.beginPath(); g.arc(x, y, r, Math.PI * 1.9, Math.PI * 2.9); g.stroke();
-    }
-    g.strokeStyle = rgba(th.accent, 0.05); g.lineWidth = 1;
-    for (let x = 0; x <= COLS; x++) { g.beginPath(); g.moveTo(x * TILE, 0); g.lineTo(x * TILE, WORLD_H); g.stroke(); }
-    for (let y = 0; y <= ROWS; y++) { g.beginPath(); g.moveTo(0, y * TILE); g.lineTo(WORLD_W, y * TILE); g.stroke(); }
-    // Weg
-    const lines = map.rawPaths.map(p => p.map(([x, y]) => [(x + 0.5) * TILE, (y + 0.5) * TILE]));
-    const strokeAll = (w, style, blur = 0, blurCol = null) => {
-      g.lineWidth = w; g.strokeStyle = style; g.lineJoin = 'miter'; g.lineCap = 'square';
-      g.shadowBlur = blur; g.shadowColor = blurCol || style;
-      for (const l of lines) { g.beginPath(); l.forEach(([x, y], i) => i ? g.lineTo(x, y) : g.moveTo(x, y)); g.stroke(); }
-      g.shadowBlur = 0;
-    };
-    strokeAll(58, rgba(th.accent, 0.08), 26, rgba(th.accent, 0.5));
-    strokeAll(48, rgba(th.accent, 0.55), 10, th.accent);
-    strokeAll(44, '#07080c');
-    strokeAll(40, mix(th.ground, '#000000', 0.45));
-    g.setLineDash([2, 10]); strokeAll(30, 'rgba(255,255,255,0.025)'); g.setLineDash([]);
-    strokeAll(2, rgba(th.lane, 0.12));
-    // Bauflächen
-    for (const idx of map.pads) {
-      const x = (idx % COLS) * TILE, y = Math.floor(idx / COLS) * TILE;
-      const pg = g.createLinearGradient(x, y, x + TILE, y + TILE);
-      pg.addColorStop(0, '#262c38'); pg.addColorStop(1, '#12151c');
-      g.fillStyle = pg; roundRect(g, x + 5, y + 5, TILE - 10, TILE - 10, 8); g.fill();
-      g.strokeStyle = rgba(th.accent, 0.28); g.lineWidth = 1.5; g.stroke();
-      g.strokeStyle = rgba(th.accent, 0.6); g.lineWidth = 2;
-      const k = 9, a = x + 9, b = y + 9, A = x + TILE - 9, B = y + TILE - 9;
-      g.beginPath();
-      g.moveTo(a, b + k); g.lineTo(a, b); g.lineTo(a + k, b);
-      g.moveTo(A - k, b); g.lineTo(A, b); g.lineTo(A, b + k);
-      g.moveTo(A, B - k); g.lineTo(A, B); g.lineTo(A - k, B);
-      g.moveTo(a + k, B); g.lineTo(a, B); g.lineTo(a, B - k);
-      g.stroke();
-    }
-    // Basis-Plattform
-    const bx = (map.base[0] + 0.5) * TILE, by = (map.base[1] + 0.5) * TILE;
-    const bg = g.createRadialGradient(bx, by, 10, bx, by, 90);
-    bg.addColorStop(0, '#2a3240'); bg.addColorStop(0.7, '#141920'); bg.addColorStop(1, 'rgba(10,12,16,0)');
-    g.fillStyle = bg; g.beginPath(); g.arc(bx, by, 90, 0, 7); g.fill();
-    g.strokeStyle = 'rgba(54,241,255,0.25)'; g.lineWidth = 2;
-    g.beginPath(); for (let i = 0; i < 6; i++) { const a = i * Math.PI / 3; g.lineTo(bx + Math.cos(a) * 70, by + Math.sin(a) * 70); } g.closePath(); g.stroke();
-    g.restore();
-    // Rand
-    g.strokeStyle = rgba(th.accent, 0.35); g.lineWidth = 2; g.shadowBlur = 16; g.shadowColor = th.accent;
-    roundRect(g, 1, 1, WORLD_W - 2, WORLD_H - 2, 18); g.stroke(); g.shadowBlur = 0;
+    drawTerrain(g, map);
     return c;
   }
   ensureMap(map) {
-    const key = map.id + '|' + (this.scale * this.dpr).toFixed(4) + '|' + map.pads.size + '|' + map.rawPaths.length;
+    const key = map.id + '|' + (this.scale * this.dpr).toFixed(4);
     if (this.mapKey === key && this.mapRef === map) return;
     this.mapLayer = this.buildMapLayer(map, true);
     this.mapKey = key; this.mapRef = map;
@@ -266,17 +212,25 @@ export class Renderer {
     this.worldTransform(shx, shy);
     g.globalAlpha = 1; g.globalCompositeOperation = 'source-over';
     g.setTransform(1, 0, 0, 1, 0, 0);
+    if (game.decals.length) this.bakeDecals(game);
     g.drawImage(this.mapLayer, Math.round(this.wt.tx), Math.round(this.wt.ty));
     this.resetWT();
     const low = ui.settings.quality === 'niedrig';
+    if (ui.buildType || ui.pendingPos) this.drawBuildGrid(game);
     const t = this.time;
     const th = game.map.theme;
 
-    // Wegfluss
+    // Leitlinie auf der Straße + Schimmern der Flüsse
     g.globalCompositeOperation = 'lighter';
-    g.setLineDash([8, 26]); g.lineDashOffset = -t * 50;
-    g.strokeStyle = rgba(th.lane, 0.28); g.lineWidth = 3; g.lineCap = 'round';
-    for (const p of game.map.paths) { g.beginPath(); p.pts.forEach((q, i) => i ? g.lineTo(q.x, q.y) : g.moveTo(q.x, q.y)); g.stroke(); }
+    g.setLineDash([6, 30]); g.lineDashOffset = -t * 45;
+    g.strokeStyle = rgba(th.lane, 0.16); g.lineWidth = 2.5; g.lineCap = 'round';
+    for (const p of game.map.smooth) { g.beginPath(); p.forEach((q, i) => i ? g.lineTo(q.x, q.y) : g.moveTo(q.x, q.y)); g.stroke(); }
+    const B = game.map.biome;
+    g.setLineDash([18, 40]); g.lineDashOffset = -t * 22;
+    for (const w of game.map.water) {
+      g.strokeStyle = rgba(B.water2, B.waterGlow ? 0.22 + Math.sin(t * 2) * 0.06 : 0.18); g.lineWidth = w.w * 0.25;
+      g.beginPath(); w.pts.forEach((q, i) => i ? g.lineTo(q.x, q.y) : g.moveTo(q.x, q.y)); g.stroke();
+    }
     g.setLineDash([]);
     // Portale
     const seen = new Set();
@@ -315,6 +269,7 @@ export class Renderer {
     g.globalCompositeOperation = 'source-over';
     this.drawShells(game);
     this.drawStrikes(game);
+    this.drawLighting(game, dt);
     this.drawTexts(game);
     this.drawHealthBars(game);
     this.drawEventOverlay(game, dt);
@@ -336,6 +291,108 @@ export class Renderer {
     }
   }
 
+  setQuality(q) { this.quality = q; this.mapKey = null; this.light = null; this.res = 0; clearSpriteCache(); this.prewarmed = false; if (this.playRect) this.resize(this.playRect); }
+
+  // Brandflecken direkt in die Bodenebene einbrennen
+  bakeDecals(game) {
+    const c = this.mapLayer, g = c.getContext('2d'), res = this.scale * this.dpr;
+    g.save(); g.setTransform(res, 0, 0, res, 0, 0);
+    for (const d of game.decals) {
+      const gr = g.createRadialGradient(d.x, d.y, 0, d.x, d.y, d.r);
+      gr.addColorStop(0, 'rgba(8,6,6,0.42)'); gr.addColorStop(0.6, 'rgba(12,10,10,0.2)'); gr.addColorStop(1, 'rgba(0,0,0,0)');
+      g.fillStyle = gr; g.beginPath(); g.arc(d.x, d.y, d.r, 0, 7); g.fill();
+    }
+    g.restore();
+    game.decals.length = 0;
+  }
+
+  // Beim Bauen: freie Flächen dezent markieren
+  drawBuildGrid(game) {
+    const map = game.map;
+    if (!this.gridLayer || this.gridRef !== map) {
+      const c = mk(WORLD_W, WORLD_H), g = c.getContext('2d');
+      const grid = map.grid, CW = WORLD_W / Math.ceil(WORLD_W / 8);
+      g.fillStyle = 'rgba(93,255,176,0.07)';
+      const GWc = Math.ceil(WORLD_W / 8);
+      for (let i = 0; i < grid.length; i++) if (!grid[i]) g.fillRect((i % GWc) * 8, Math.floor(i / GWc) * 8, 8, 8);
+      g.fillStyle = 'rgba(93,255,176,0.35)';
+      for (let y = 16; y < WORLD_H; y += 32) for (let x = 16; x < WORLD_W; x += 32) {
+        const i = Math.floor(y / 8) * GWc + Math.floor(x / 8);
+        if (!grid[i]) g.fillRect(x - 1, y - 1, 2, 2);
+      }
+      this.gridLayer = c; this.gridRef = map;
+    }
+    const g = this.ctx;
+    g.globalAlpha = 0.75 + Math.sin(this.time * 3) * 0.2;
+    g.drawImage(this.gridLayer, 0, 0, WORLD_W, WORLD_H);
+    g.globalAlpha = 1;
+  }
+
+  // Licht und Atmosphäre: Tag/Dämmerung/Nacht, Lichtquellen, Bodennebel
+  drawLighting(game, dt) {
+    const q = this.quality || 'hoch';
+    const B = game.map.biome, mood = MOOD[game.map.def.biome] || MOOD.kristall;
+    const g = this.ctx, t = this.time;
+    // Nebel
+    if (q === 'hoch') {
+      if (!this.fogSprite) {
+        const c = mk(256, 128), fg = c.getContext('2d');
+        for (let i = 0; i < 9; i++) {
+          const x = 40 + Math.random() * 176, y = 30 + Math.random() * 68, r = 30 + Math.random() * 40;
+          const gr = fg.createRadialGradient(x, y, 0, x, y, r);
+          gr.addColorStop(0, 'rgba(255,255,255,0.35)'); gr.addColorStop(1, 'rgba(255,255,255,0)');
+          fg.fillStyle = gr; fg.fillRect(0, 0, 256, 128);
+        }
+        this.fogSprite = c;
+      }
+      g.globalCompositeOperation = 'source-over';
+      for (let i = 0; i < 4; i++) {
+        const w = 460 + i * 40, x = ((t * (6 + i * 2) + i * 260) % (WORLD_W + w)) - w, y = (i * 113) % WORLD_H - 40;
+        g.globalAlpha = mood.fog * (0.6 + 0.4 * Math.sin(t * 0.3 + i));
+        g.drawImage(this.fogSprite, x, y, w, w * 0.5);
+      }
+      g.globalAlpha = 1;
+    }
+    if (q === 'niedrig') return;
+    // Dunkelheit mit ausgeschnittenen Lichtern
+    const LS = q === 'hoch' ? 0.25 : 0.15;
+    if (!this.light || this.light.width !== Math.round(WORLD_W * LS)) {
+      this.light = mk(WORLD_W * LS, WORLD_H * LS);
+    }
+    const L = this.light.getContext('2d');
+    L.setTransform(1, 0, 0, 1, 0, 0);
+    L.globalCompositeOperation = 'source-over'; L.globalAlpha = 1;
+    L.clearRect(0, 0, this.light.width, this.light.height);
+    if (mood.dark > 0) {
+      L.fillStyle = mood.ambient; L.globalAlpha = mood.dark; L.fillRect(0, 0, this.light.width, this.light.height);
+      L.globalCompositeOperation = 'destination-out';
+      L.setTransform(LS, 0, 0, LS, 0, 0);
+      const white = glow(0);
+      const cut = (x, y, r, a) => { L.globalAlpha = Math.min(1, a); L.drawImage(white, x - r, y - r, r * 2, r * 2); };
+      const b = game.base;
+      cut(b.x, b.y, 230 + Math.sin(t * 2.5) * 15, 1);
+      for (const tw of game.towers) cut(tw.x, tw.y, 70, 0.55);
+      for (const w of game.map.water) if (B.waterGlow) for (let i = 0; i < w.pts.length; i += 6) cut(w.pts[i].x, w.pts[i].y, w.w * 1.6 + 40, 0.5);
+      for (const l of game.lights) cut(l.x, l.y, l.r * 1.4, (l.life / l.max) * 1.2);
+      for (const e of game.enemies) if (e.active && (e.boss || e.type === 'flyer')) cut(e.x, e.y, e.boss ? 150 : 50, 0.5);
+      if (game.hero && game.hero.dead <= 0) cut(game.hero.x, game.hero.y, 90, 0.7);
+      for (const p of game.projectiles) if (p.kind === 'missile' || p.kind === 'shell') cut(p.x, p.y, 40, 0.6);
+      for (const tw of game.towers) for (const bm of tw.beams) cut(bm.e.x, bm.e.y, 50, 0.7);
+      g.drawImage(this.light, 0, 0, WORLD_W, WORLD_H);
+    }
+    // farbige Lichtblitze (auch am Tag)
+    g.globalCompositeOperation = 'lighter';
+    for (const l of game.lights) {
+      if (l.r < 60) continue;
+      const f = l.life / l.max;
+      this.glowAt(l.color, l.x, l.y, l.r * 2, f * (mood.dark > 0 ? 0.35 : 0.22));
+    }
+    g.globalCompositeOperation = 'source-over';
+    g.globalAlpha = 1;
+    // Farbstimmung
+    if (mood.tintA > 0 && mood.dark === 0 && q === 'hoch') { g.globalAlpha = mood.tintA; g.fillStyle = mood.tint; g.fillRect(0, 0, WORLD_W, WORLD_H); g.globalAlpha = 1; }
+  }
+
   drawSelection(game, ui) {
     const g = this.ctx;
     const sel = ui.selected;
@@ -348,35 +405,31 @@ export class Renderer {
       g.beginPath(); g.arc(tw.x, tw.y, r, 0, 7); g.fill(); g.stroke(); g.setLineDash([]);
       if (tw.spec.auraRange && (tw.spec.rangeBuff || tw.spec.dmgBuff)) { g.strokeStyle = 'rgba(255,255,255,0.3)'; g.beginPath(); g.arc(tw.x, tw.y, tw.spec.auraRange * TILE, 0, 7); g.stroke(); }
       g.strokeStyle = '#ffffff'; g.lineWidth = 2;
-      roundRect(g, tw.tx * TILE + 3, tw.ty * TILE + 3, TILE - 6, TILE - 6, 10); g.stroke();
+      g.beginPath(); g.arc(tw.x, tw.y, 30, 0, 7); g.stroke();
     }
     if (sel && sel.kind === 'base') {
       const b = game.base, r = game.baseCannon().range * TILE;
       g.fillStyle = 'rgba(54,241,255,0.06)'; g.strokeStyle = 'rgba(54,241,255,0.5)'; g.lineWidth = 2;
       g.setLineDash([10, 8]); g.beginPath(); g.arc(b.x, b.y, r, 0, 7); g.fill(); g.stroke(); g.setLineDash([]);
     }
-    // Hover / Bauvorschau
-    const h = ui.hoverTile;
-    if (h && game.state === 'playing') {
-      const buildType = ui.buildType;
+    // Bauvorschau (frei platzierbar)
+    const h = ui.ghost;
+    if (h && game.state === 'playing' && (ui.buildType || ui.pendingPos)) {
       const ok = game.canBuild(h.x, h.y);
-      if (buildType) {
-        const x = (h.x + 0.5) * TILE, y = (h.y + 0.5) * TILE;
-        const col = ok ? '#5dffb0' : '#ff3d5a';
-        g.fillStyle = rgba(col, 0.15); g.strokeStyle = col; g.lineWidth = 2;
-        roundRect(g, h.x * TILE + 4, h.y * TILE + 4, TILE - 8, TILE - 8, 9); g.fill(); g.stroke();
-        if (ok) {
-          const spec = TOWERS[buildType].tiers[1];
-          const rr = spec.range * TILE;
-          g.fillStyle = rgba(TOWERS[buildType].color, 0.06); g.strokeStyle = rgba(TOWERS[buildType].color, 0.5);
-          g.setLineDash([8, 8]); g.beginPath(); g.arc(x, y, rr, 0, 7); g.fill(); g.stroke(); g.setLineDash([]);
-          this.spr(towerBaseSprite(buildType, '1', this.res), x, y, 0, 1, 0.55);
-          this.spr(towerHeadSprite(buildType, '1', this.res), x, y, -Math.PI / 2, 1, 0.55);
-          g.globalAlpha = 1;
-        }
-      } else if (ok && !ui.targeting && !ui.heroSelected) {
-        g.strokeStyle = rgba(game.map.theme.accent, 0.8); g.lineWidth = 2;
-        roundRect(g, h.x * TILE + 4, h.y * TILE + 4, TILE - 8, TILE - 8, 9); g.stroke();
+      const col = ok ? '#5dffb0' : '#ff3d5a';
+      g.fillStyle = rgba(col, 0.14); g.strokeStyle = col; g.lineWidth = 2;
+      g.beginPath(); g.arc(h.x, h.y, 26, 0, 7); g.fill(); g.stroke();
+      const buildType = ui.buildType;
+      if (buildType && ok) {
+        const spec = TOWERS[buildType].tiers[1];
+        const rr = (spec.range || 1.5) * TILE;
+        g.fillStyle = rgba(TOWERS[buildType].color, 0.06); g.strokeStyle = rgba(TOWERS[buildType].color, 0.5);
+        g.setLineDash([8, 8]); g.beginPath(); g.arc(h.x, h.y, rr, 0, 7); g.fill(); g.stroke(); g.setLineDash([]);
+        this.spr(towerBaseSprite(buildType, '1', this.res), h.x, h.y, 0, 1, 0.6);
+        this.spr(towerHeadSprite(buildType, '1', this.res), h.x, h.y, -Math.PI / 2, 1, 0.6);
+        g.globalAlpha = 1;
+      } else if (!ok) {
+        g.beginPath(); g.moveTo(h.x - 8, h.y - 8); g.lineTo(h.x + 8, h.y + 8); g.moveTo(h.x + 8, h.y - 8); g.lineTo(h.x - 8, h.y + 8); g.stroke();
       }
     }
   }
@@ -444,6 +497,7 @@ export class Renderer {
       else if (tw.type === 'tesla' || tw.type === 'emp') ang = t * 0.4;
       const rx = rot ? -Math.cos(tw.angle) * tw.recoil * 3 : 0;
       const ry = rot ? -Math.sin(tw.angle) * tw.recoil * 3 : 0;
+      this.sprR(towerHeadShadow(tw.type, tw.tier, res), tw.x + rx + 4, tw.y + ry + 6, ang);
       this.sprR(towerHeadSprite(tw.type, tw.tier, res), tw.x + rx, tw.y + ry, ang);
     }
     this.resetWT();
@@ -473,6 +527,10 @@ export class Renderer {
         g.beginPath(); g.arc(tw.x, tw.y, 28, 0, 7); g.stroke();
       }
       for (const d of tw.drones) this.glowAt(ci('#5dffb0'), d.x, d.y, 18, 0.7);
+      // Positionslichter
+      const lt = towerLights(tw.tier), blink = Math.sin(t * 3 + tw.id * 1.7) > 0.2;
+      this.glowAt(ci('#ff3d5a'), tw.x + lt[0][0], tw.y + lt[0][1] - 1, blink ? 9 : 5, blink ? 0.9 : 0.4);
+      this.glowAt(ci('#5dffb0'), tw.x + lt[1][0], tw.y + lt[1][1] - 1, !blink ? 9 : 5, !blink ? 0.9 : 0.4);
     }
     g.globalAlpha = 1;
     g.globalCompositeOperation = 'source-over';
@@ -508,7 +566,7 @@ export class Renderer {
     // 1) Leuchten
     g.globalCompositeOperation = 'lighter';
     for (const e of E) {
-      if (!e.active || (e.cloaked && !e.revealed) || e.type === 'swarm' || e.type === 'mite') continue;
+      if (!e.active || (e.cloaked && !e.revealed) || !(e.boss || e.elite || e.type === 'flyer')) continue;
       this.glowAt(ci(e.def.color), e.x, e.y, e.r * (e.boss ? 3.5 : 3), e.boss ? 0.35 : 0.22);
     }
     g.globalCompositeOperation = 'source-over';
@@ -517,18 +575,31 @@ export class Renderer {
       for (const e of E) {
         if (!e.active || (pass === 0) === e.air) continue;
         const hidden = e.cloaked && !e.revealed;
-        let sc = 1;
-        if (e.type === 'swarm' || e.type === 'mite') sc = 1 + Math.sin(e.anim * 30) * 0.06;
-        else if (e.type === 'splitter') sc = 1 + Math.sin(e.anim * 5) * 0.07;
+        let sc = 1 + (e.hit > 0 ? e.hit * 1.8 : 0);
+        if (e.type === 'splitter') sc *= 1 + Math.sin(e.anim * 5) * 0.06;
+        const rate = e.type === 'swarm' || e.type === 'mite' ? 14 : e.type === 'tank' || e.type === 'boss' ? 6 : 4;
+        const moving = e.stunT <= 0;
+        const frame = moving ? Math.floor(e.anim * rate) & 1 : 0;
         g.globalAlpha = hidden ? 0.1 + Math.sin(t * 7 + e.wob) * 0.05 : e.cloaked ? 0.85 : 1;
-        this.sprR(enemySprite(e.type, e.elite, this.res), e.x, e.y, e.angle, sc);
+        const by = e.air ? Math.sin(e.anim * 3 + e.wob) * 2 : 0;
+        this.sprR(enemySprite(e.type, e.elite, this.res, frame), e.x, e.y + by, e.angle, sc);
       }
     }
     this.resetWT();
     g.globalAlpha = 1;
-    // Boss-Ringe
+    // Boss-Ringe + Schuss-Ankündigung
     for (const e of E) {
       if (!e.boss || !e.active) continue;
+      if (e.charge > 0 && e.chargeTower) {
+        const tw = e.chargeTower, k = 1 - e.charge / (e.def.shoot.charge || 1);
+        g.strokeStyle = rgba('#ff3d5a', 0.3 + k * 0.6); g.lineWidth = 1 + k * 3;
+        g.setLineDash([8, 6]); g.lineDashOffset = -t * 60;
+        g.beginPath(); g.moveTo(e.x, e.y); g.lineTo(tw.x, tw.y); g.stroke(); g.setLineDash([]);
+        g.beginPath(); g.arc(tw.x, tw.y, 30 - k * 8, 0, 7); g.stroke();
+        g.globalCompositeOperation = 'lighter';
+        this.glowAt(ci('#ff3d5a'), e.x, e.y, 40 + k * 60, 0.5 + k * 0.5);
+        g.globalCompositeOperation = 'source-over';
+      }
       g.strokeStyle = 'rgba(255,61,110,0.8)'; g.lineWidth = 3;
       for (let i = 0; i < 3; i++) { const a = t * 1.5 + i * 2.094; g.beginPath(); g.arc(e.x, e.y, e.r * 0.78, a, a + 1.2); g.stroke(); }
     }
@@ -544,7 +615,7 @@ export class Renderer {
         g.beginPath(); g.arc(e.x, e.y, e.r * 1.45, 0, 7); g.stroke();
         g.globalAlpha = 0.08 + f * 0.08; g.fillStyle = '#4fc3ff'; g.fill();
       }
-      if (e.slowT > 0 && e.slowAmt > 0) { g.globalAlpha = 0.5; g.strokeStyle = '#7d7bff'; g.lineWidth = 1.5; g.beginPath(); g.arc(e.x, e.y, e.r * 1.15, 0, 7); g.stroke(); }
+      if (e.slowT > 0 && e.slowAmt > 0) this.glowAt(ci('#7d7bff'), e.x, e.y + e.r * 0.6, e.r * 1.6, 0.45);
       if (e.stunT > 0) { for (let i = 0; i < 3; i++) { const a = t * 6 + i * 2.1; this.glowAt(0, e.x + Math.cos(a) * e.r, e.y - e.r - 4 + Math.sin(a) * 3, 8, 0.9); } }
       if (e.cloaked) { g.globalAlpha = 0.6; g.strokeStyle = '#c58bff'; g.lineWidth = 1.5; g.beginPath(); g.arc(e.x, e.y, e.r * 1.5, t, t + 4.5); g.stroke(); }
       if (e.markT > 0) { g.globalAlpha = 0.6; g.strokeStyle = '#66ffcc'; g.lineWidth = 1; g.beginPath(); g.moveTo(e.x - e.r - 4, e.y); g.lineTo(e.x + e.r + 4, e.y); g.moveTo(e.x, e.y - e.r - 4); g.lineTo(e.x, e.y + e.r + 4); g.stroke(); }
@@ -555,14 +626,17 @@ export class Renderer {
 
   drawHealthBars(game) {
     const g = this.ctx;
+    // Dauerhafte Lebensanzeige über allen sichtbaren Gegnern
     for (const e of game.enemies) {
-      if (!e.active || e.boss || (e.cloaked && !e.revealed)) continue;
-      if (e.hp >= e.maxHp && e.shield >= e.maxShield) continue;
-      const w = Math.max(16, e.r * 2), x = e.x - w / 2, y = e.y - e.r - 9;
-      g.fillStyle = 'rgba(0,0,0,0.6)'; g.fillRect(x - 1, y - 1, w + 2, 5);
-      const f = e.hp / e.maxHp;
+      if (!e.active || (e.cloaked && !e.revealed)) continue;
+      const big = e.boss;
+      const w = big ? 84 : Math.max(16, e.r * 2), h = big ? 5 : 3;
+      const x = e.x - w / 2, y = e.y - e.r - (big ? 14 : 9);
+      g.fillStyle = e.elite ? '#ffd23e' : 'rgba(0,0,0,0.75)'; g.fillRect(x - 1, y - 1, w + 2, h + 2);
+      g.fillStyle = 'rgba(10,12,18,0.95)'; g.fillRect(x, y, w, h);
+      const f = Math.max(0, e.hp / e.maxHp);
       g.fillStyle = f > 0.5 ? '#5dff8a' : f > 0.25 ? '#ffcf3a' : '#ff3d5a';
-      g.fillRect(x, y, w * f, 3);
+      g.fillRect(x, y, w * f, h);
       if (e.maxShield > 0 && e.shield > 0) { g.fillStyle = '#4fc3ff'; g.fillRect(x, y - 3, w * (e.shield / e.maxShield), 2); }
     }
     for (const tw of game.towers) {
@@ -711,11 +785,24 @@ export class Renderer {
     if (smokePass) {
       const s = smoke();
       for (let i = 0; i < n; i++) {
-        if (P.kind[i] !== P_SMOKE) continue;
+        const k = P.kind[i];
         const f = P.life[i] / P.maxLife[i];
-        const sz = P.size[i] * (2 - f);
-        g.globalAlpha = f * 0.8;
-        g.drawImage(s, P.x[i] - sz, P.y[i] - sz, sz * 2, sz * 2);
+        if (k === P_SMOKE) {
+          const sz = P.size[i] * (2 - f);
+          g.globalAlpha = f * 0.8;
+          g.drawImage(s, P.x[i] - sz, P.y[i] - sz, sz * 2, sz * 2);
+        } else if (k === P_DEBRIS) {
+          const sz = P.size[i];
+          g.globalAlpha = Math.min(1, f * 2);
+          g.fillStyle = '#1b1d22'; g.fillRect(P.x[i] - sz / 2, P.y[i] - sz / 2, sz, sz * 0.7);
+          g.fillStyle = PAL[P.color[i]]; g.fillRect(P.x[i] - sz / 2, P.y[i] - sz / 2, sz, 1);
+        } else if (k === P_HEAT && !low) {
+          // Hitzeflimmern: helle, wabernde Schlieren
+          const sz = P.size[i] * (1.6 - f * 0.6), wob = Math.sin(this.time * 18 + i) * 3;
+          g.globalAlpha = f * 0.1;
+          g.drawImage(s, P.x[i] - sz + wob, P.y[i] - sz, sz * 2, sz * 1.4);
+          g.globalAlpha = f * 0.06; g.drawImage(glow(0), P.x[i] - sz * 0.6 - wob, P.y[i] - sz * 0.6, sz * 1.2, sz * 1.2);
+        }
       }
       g.globalAlpha = 1;
       return;
@@ -724,7 +811,7 @@ export class Renderer {
     let st = false;
     for (let i = 0; i < n; i++) {
       const k = P.kind[i];
-      if (k === P_SMOKE) continue;
+      if (k === P_SMOKE || k === P_DEBRIS || k === P_HEAT) continue;
       const f = P.life[i] / P.maxLife[i];
       const sz = P.size[i] * (k === P_GLOW ? (0.4 + f) : 1);
       const spr = glow(P.color[i]);

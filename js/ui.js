@@ -1,13 +1,15 @@
 // Oberfläche: HUD, Panels, Menüs, Eingabe
 import {
   TILE, COLS, ROWS, WORLD_W, WORLD_H, TOWERS, TOWER_ORDER, towerSpec, tierLevel, ENEMIES, ELITE_INFO, BASE, BASE_UPGRADES,
-  BASE_UPGRADE_ORDER, ABILITIES, ABILITY_ORDER, HERO, heroXpNeed, RESEARCH, RESEARCH_BRANCHES, ACHIEVEMENTS, DAILY_MODS, MAPS, CUSTOM_THEME, GAME_TITLE,
+  BASE_UPGRADE_ORDER, ABILITIES, ABILITY_ORDER, HERO, heroXpNeed, RESEARCH, RESEARCH_BRANCHES, ACHIEVEMENTS, DAILY_MODS, MAPS, CUSTOM_THEME, GAME_TITLE, BIOMES,
 } from './data.js';
-import { Game, buildMap } from './game.js';
+import { Game, buildMap, normalizeDef } from './game.js';
 import { dailyConfig, makeWave } from './waves.js';
 import { store } from './storage.js';
 import { sfx } from './audio.js';
 import { towerIcon, enemyIcon } from './sprites.js';
+import { drawThumbTerrain } from './terrain.js';
+import { DIFFICULTIES, DIFF_ORDER } from './waves.js';
 import { fmt, fmtTime, todayKey, el, clamp, rgba } from './util.js';
 
 const svg = (p, extra = '') => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" ${extra}>${p}</svg>`;
@@ -47,29 +49,14 @@ const TIPS = {
   hero: ['Dein Kommandant', 'Tippe den Kommandanten an (oder Taste H) und dann irgendwo auf die Karte, um ihn zu bewegen. Er kämpft mit und steigt im Level auf.'],
 };
 
-const MODE_NAME = { standard: 'Standard', expert: 'Experte', daily: 'Tägliche Herausforderung' };
+const MODE_NAME = { standard: 'Standard', expert: 'Advance', daily: 'Tägliche Herausforderung' };
 const TARGET_MODES = [['first', 'Erster'], ['strong', 'Stärkster'], ['near', 'Nächster']];
 
 export function drawThumb(canvas, def) {
-  const W = canvas.width, H = canvas.height, g = canvas.getContext('2d');
-  const s = W / WORLD_W;
+  const g = canvas.getContext('2d');
   let map;
   try { map = buildMap(def); } catch (e) { return; }
-  const th = def.theme || CUSTOM_THEME;
-  const gr = g.createLinearGradient(0, 0, W, H);
-  gr.addColorStop(0, th.ground2); gr.addColorStop(1, th.ground);
-  g.fillStyle = gr; g.fillRect(0, 0, W, H);
-  g.fillStyle = 'rgba(80,95,120,0.55)';
-  for (const i of map.pads) g.fillRect((i % COLS) * TILE * s + 2, Math.floor(i / COLS) * TILE * s + 2, TILE * s - 4, TILE * s - 4);
-  g.lineJoin = 'miter'; g.lineCap = 'square';
-  for (const [w, c] of [[44 * s + 4, th.accent], [44 * s, '#07080c']]) {
-    g.strokeStyle = c; g.lineWidth = w;
-    for (const p of map.rawPaths) { g.beginPath(); p.forEach(([x, y], i) => { const X = (x + 0.5) * TILE * s, Y = (y + 0.5) * TILE * s; i ? g.lineTo(X, Y) : g.moveTo(X, Y); }); g.stroke(); }
-  }
-  if (def.paths.length && def.paths[0].length) {
-    g.fillStyle = '#36f1ff'; g.shadowColor = '#36f1ff'; g.shadowBlur = 10;
-    g.beginPath(); g.arc(map.basePos.x * s, map.basePos.y * s, 30 * s + 3, 0, 7); g.fill(); g.shadowBlur = 0;
-  }
+  drawThumbTerrain(g, map, canvas.width, canvas.height);
 }
 
 export class UI {
@@ -78,8 +65,8 @@ export class UI {
     this.$ = (id) => document.getElementById(id);
     this.mode = 'menu';
     this.game = null; this.paused = false; this.speed = 1;
-    this.selected = null; this.buildType = null; this.pendingPad = null; this.targeting = null; this.heroSelected = false;
-    this.hoverTile = null; this.mouseWorld = null; this.mouseNX = 0; this.mouseNY = 0;
+    this.selected = null; this.buildType = null; this.pendingPos = null; this.ghost = null; this.targeting = null; this.heroSelected = false;
+    this.mouseWorld = null; this.mouseNX = 0; this.mouseNY = 0;
     this.cache = new Map();
     this.panelTimer = 0; this.lastPreviewWave = -1;
     this.shift = false;
@@ -135,9 +122,8 @@ export class UI {
     const W = window.innerWidth, H = window.innerHeight;
     if (this.mode === 'game') {
       const top = this.$('topbar').getBoundingClientRect().bottom;
-      const left = this.$('leftbar').getBoundingClientRect().right;
-      const right = this.$('buildbar').getBoundingClientRect().left;
-      return { x: left + 6, y: top + 6, w: right - left - 12, h: H - top - 12 };
+      const bottom = this.$('bottombar').getBoundingClientRect().top;
+      return { x: 6, y: top + 6, w: W - 12, h: bottom - top - 12 };
     }
     if (this.mode === 'editor') {
       const tool = document.querySelector('#scrEditor .etool');
@@ -154,7 +140,7 @@ export class UI {
     this.$('btnPause').innerHTML = ICON.pause;
     this.$('btnMenu').onclick = () => { sfx.play('click'); this.openPause(); };
     this.$('btnPause').onclick = () => { sfx.play('click'); this.togglePause(); };
-    this.$('btnSpeed').onclick = () => { sfx.play('click'); this.cycleSpeed(); };
+    this.$('speedSeg').querySelectorAll('button').forEach(b => { b.onclick = () => { sfx.play('click'); this.setSpeed(+b.dataset.s); }; });
     this.$('btnMute').onclick = () => { this.toggleMute(); };
     this.$('btnNext').onclick = () => { sfx.init(); if (this.game && this.game.callNextWave()) { this.paused = false; } else sfx.play('error'); };
     this.updateMuteIcon();
@@ -170,7 +156,7 @@ export class UI {
       bb.appendChild(b);
       this.towerBtns[type] = b;
     }
-    const lb = this.$('leftbar');
+    const lb = this.$('abilbar');
     this.abilBtns = {};
     for (const id of ABILITY_ORDER) {
       const A = ABILITIES[id];
@@ -181,9 +167,7 @@ export class UI {
       lb.appendChild(b);
       this.abilBtns[id] = b;
     }
-    this.heroBox = el('div', '', '');
-    this.heroBox.style.cssText = 'display:flex;flex-direction:column;align-items:center;gap:6px';
-    this.heroBox.appendChild(el('div', 'sep'));
+    this.heroBox = el('div', 'herobox', '');
     this.heroBtn = el('button', 'hero-btn', `${ICON.hero}<span class="lv">1</span><div class="hpb"><div></div></div><div class="resp"></div>`);
     this.heroBtn.title = 'Kommandant auswählen (H)';
     this.heroBtn.onclick = () => { sfx.init(); this.toggleHero(); };
@@ -204,7 +188,8 @@ export class UI {
     this.settings.muted = !this.settings.muted; sfx.setMuted(this.settings.muted); store.save(); this.updateMuteIcon();
     if (!this.settings.muted) { sfx.init(); sfx.play('click'); }
   }
-  cycleSpeed() { this.speed = this.speed % 3 + 1; this.$('btnSpeed').textContent = this.speed + 'x'; this.$('btnSpeed').classList.toggle('on', this.speed > 1); }
+  cycleSpeed() { this.setSpeed(this.speed % 3 + 1); }
+  setSpeed(v) { this.speed = v; this.$('speedSeg').querySelectorAll('button').forEach(b => b.classList.toggle('on', +b.dataset.s === v)); }
   togglePause(force) {
     if (!this.game) return;
     this.paused = force !== undefined ? force : !this.paused;
@@ -217,15 +202,16 @@ export class UI {
     if (!g) return;
     if (g.rules.banned.includes(type)) { this.toast('Diese Turmart ist heute gesperrt'); sfx.play('error'); return; }
     this.targeting = null; this.heroSelected = false;
-    if (this.pendingPad) {
-      const p = this.pendingPad; this.pendingPad = null;
+    if (this.pendingPos) {
+      const p = this.pendingPos; this.pendingPos = null;
       const t = g.build(type, p.x, p.y);
-      this.buildType = null; this.hoverTile = null;
-      if (t) { this.select({ kind: 'tower', tower: t }); }
+      this.buildType = null; this.ghost = null;
+      if (t) this.select({ kind: 'tower', tower: t });
       this.refreshBuildSel();
       return;
     }
     this.buildType = this.buildType === type ? null : type;
+    if (!this.buildType) this.ghost = null;
     this.select(null);
     this.refreshBuildSel();
     sfx.play('click');
@@ -237,16 +223,15 @@ export class UI {
   showBuildInfo(type) {
     const box = this.$('buildinfo');
     if (!type) {
-      if (this.pendingPad) { box.innerHTML = '<h4>Baufläche gewählt</h4><p>Tippe rechts auf einen Turm, um ihn hier zu bauen.</p>'; box.classList.remove('hidden'); }
+      if (this.pendingPos) { box.innerHTML = '<h4>Bauplatz gewählt</h4><p>Tippe unten auf einen Turm, um ihn hier zu bauen.</p>'; box.classList.remove('hidden'); }
       else box.classList.add('hidden');
       return;
     }
     const T = TOWERS[type], sp = towerSpec(type, '1');
     const lines = statLines(sp, this.game, null).slice(0, 4).map(([k, v]) => `<div><span>${k}</span><b>${v}</b></div>`).join('');
-    box.innerHTML = `<h4>${T.name} <span style="color:var(--gold);font-family:var(--mono)">${T.tiers[1].cost}</span></h4><p>${T.desc}</p><div class="stats">${lines}</div>${this.buildType === type ? '<p style="margin:0;color:var(--cyan)">Tippe auf eine freie Baufläche.</p>' : ''}`;
+    box.innerHTML = `<h4>${T.name} <span>${T.tiers[1].cost}</span></h4><p>${T.desc}</p><div class="stats">${lines}</div>${this.buildType === type ? '<p style="margin:0;color:#93c5fd">Tippe auf einen freien Platz neben dem Weg.</p>' : ''}`;
     box.classList.remove('hidden');
   }
-
   ability(id) {
     const g = this.game;
     if (!g || g.state !== 'playing') return;
@@ -271,7 +256,7 @@ export class UI {
   // ---------------------------------------------------------------- Auswahl & Panel
   select(sel) {
     this.selected = sel;
-    if (sel) { this.pendingPad = null; }
+    if (sel) { this.pendingPos = null; if (!this.buildType) this.ghost = null; }
     this.renderPanel();
   }
   renderPanel() {
@@ -281,11 +266,31 @@ export class UI {
     p.classList.remove('hidden');
     p.innerHTML = '';
     p.className = '';
-    const wx = sel.kind === 'tower' ? sel.tower.x : g.base.x;
-    const sx = this.r.worldToScreen(wx, 0).x;
-    p.classList.add(sx < window.innerWidth / 2 ? 'right' : 'left');
-    if (sel.kind === 'tower') this.towerPanel(p, sel.tower);
-    else this.basePanel(p);
+    const inner = el('div', 'scroll');
+    p.appendChild(inner);
+    if (sel.kind === 'tower') this.towerPanel(inner, sel.tower);
+    else { p.classList.add('wide'); this.basePanel(inner); }
+    this.placePanel();
+  }
+  // Fenster direkt neben dem gewählten Turm / Kern platzieren
+  placePanel() {
+    const p = this.$('panel'), sel = this.selected, g = this.game;
+    if (!sel || !g || p.classList.contains('hidden')) return;
+    const wx = sel.kind === 'tower' ? sel.tower.x : g.base.x, wy = sel.kind === 'tower' ? sel.tower.y : g.base.y;
+    const s = this.r.worldToScreen(wx, wy);
+    const off = (sel.kind === 'tower' ? 30 : 76) * this.r.scale + 12;
+    const pw = p.offsetWidth, ph = p.offsetHeight;
+    const top0 = this.$('topbar').getBoundingClientRect().bottom + 6, bot0 = this.$('bottombar').getBoundingClientRect().top - 6;
+    let left = s.x + off, side = 'side-r';
+    if (left + pw > window.innerWidth - 6) { left = s.x - off - pw; side = 'side-l'; }
+    if (left < 6) { left = 6; side = ''; }
+    let top = s.y - ph / 2;
+    top = Math.max(top0, Math.min(bot0 - ph, top));
+    p.classList.remove('side-r', 'side-l');
+    if (side) p.classList.add(side);
+    p.style.left = Math.round(left) + 'px'; p.style.top = Math.round(top) + 'px';
+    p.style.setProperty('--ay', Math.round(clamp(s.y - top, 14, ph - 14)) + 'px');
+    const sc = p.querySelector('.scroll'); if (sc) sc.style.maxHeight = (bot0 - top0 - 20) + 'px';
   }
   towerPanel(p, t) {
     const g = this.game, T = TOWERS[t.type], sp = t.spec, lvl = tierLevel(t.tier);
@@ -297,7 +302,7 @@ export class UI {
     st.innerHTML = this.towerStatsHtml(t);
     p.appendChild(st);
     if (!['shieldgen', 'radar', 'pulse'].includes(sp.kind)) {
-      const seg = el('div', 'seg', '<span>Ziel</span>');
+      const seg = el('div', 'seg target', '');
       for (const [m, label] of TARGET_MODES) {
         const b = this.btn(label, t.mode === m ? 'on' : '', () => { t.mode = m; t.beams.length = 0; this.renderPanel(); });
         seg.appendChild(b);
@@ -307,7 +312,7 @@ export class UI {
     const up = el('div', 'upg');
     const next = g.nextTiers(t);
     if (!next.length) up.appendChild(el('div', 'ubtn max', '<b>Höchste Stufe erreicht</b>'));
-    if (t.tier === '2') up.appendChild(el('div', 'sectlabel', 'Spezialisierung wählen'));
+    if (t.tier === '2') up.appendChild(el('div', 'sectlabel', 'Spezialisierung'));
     for (const tier of next) {
       const d = T.tiers[tier];
       const name = tier === '2' ? 'Stufe 2' : d.name;
@@ -326,7 +331,7 @@ export class UI {
   }
   towerStatsHtml(t) {
     const lines = statLines(t.spec, this.game, t);
-    lines.push(['Abschüsse', fmt(t.kills)], ['Schaden ges.', fmt(t.dmg)]);
+    lines.push(['Abschüsse', fmt(t.kills)], ['Gesamt', fmt(t.dmg)]);
     lines.push(['Zustand', t.offline > 0 ? 'Ausfall' : Math.ceil(t.hp) + '/' + Math.ceil(t.maxHp)]);
     if (t.buffs.shieldCap) lines.push(['Schild', Math.round(t.shield) + '/' + t.buffs.shieldCap]);
     return lines.map(([k, v]) => `<div><span>${k}</span><b>${v}</b></div>`).join('');
@@ -381,14 +386,14 @@ export class UI {
       if (this.mode === 'editor' && this.editor) { this.editor.pointer('down', e); return; }
       if (this.mode !== 'game') return;
       this.updateMouse(e);
-      if (e.pointerType !== 'mouse' && this.buildType) this.hoverTile = this.tileAt(this.mouseWorld);
+      if (e.pointerType !== 'mouse' && this.buildType) this.ghost = { ...this.mouseWorld };
     });
     cv.addEventListener('pointermove', (e) => {
       this.mouseNX = e.clientX / window.innerWidth - 0.5; this.mouseNY = e.clientY / window.innerHeight - 0.5;
       if (this.mode === 'editor' && this.editor) { this.editor.pointer('move', e); return; }
       if (this.mode !== 'game') return;
       this.updateMouse(e);
-      if (e.pointerType === 'mouse') this.hoverTile = this.tileAt(this.mouseWorld);
+      if (e.pointerType === 'mouse' && this.buildType) this.ghost = { ...this.mouseWorld };
     });
     cv.addEventListener('pointerup', (e) => {
       if (this.mode === 'editor' && this.editor) { this.editor.pointer('up', e); down = null; return; }
@@ -398,7 +403,7 @@ export class UI {
       if (moved < 14) { this.updateMouse(e); this.tap(this.mouseWorld, e); }
       down = null;
     });
-    cv.addEventListener('pointerleave', (e) => { if (e.pointerType === 'mouse' && this.mode === 'game') this.hoverTile = null; });
+    cv.addEventListener('pointerleave', (e) => { if (e.pointerType === 'mouse' && this.mode === 'game' && !this.pendingPos) this.ghost = null; });
     cv.addEventListener('contextmenu', (e) => { e.preventDefault(); if (this.mode === 'game') this.cancel(); });
     document.addEventListener('contextmenu', (e) => e.preventDefault());
     window.addEventListener('keydown', (e) => this.key(e));
@@ -413,7 +418,7 @@ export class UI {
     return { x, y };
   }
   cancel() {
-    this.targeting = null; this.buildType = null; this.pendingPad = null; this.heroSelected = false;
+    this.targeting = null; this.buildType = null; this.pendingPos = null; this.ghost = null; this.heroSelected = false;
     this.select(null); this.refreshBuildSel();
   }
   tap(w, e) {
@@ -423,8 +428,7 @@ export class UI {
       if (g.useAbility(this.targeting, w.x, w.y)) this.targeting = null;
       return;
     }
-    const tile = this.tileAt(w);
-    const tower = tile ? g.towerAt.get(tile.y * COLS + tile.x) : null;
+    const tower = g.towerNear(w.x, w.y, 30);
     const h = g.hero;
     if (this.heroSelected && h) {
       if (Math.hypot(w.x - h.x, w.y - h.y) < 24) { this.heroSelected = false; return; }
@@ -433,27 +437,29 @@ export class UI {
       return;
     }
     if (this.buildType) {
-      if (tile && g.canBuild(tile.x, tile.y)) {
-        const t = g.build(this.buildType, tile.x, tile.y);
-        if (t && !(this.shift || e.shiftKey)) { this.buildType = null; this.select({ kind: 'tower', tower: t }); }
+      if (g.canBuild(w.x, w.y)) {
+        const t = g.build(this.buildType, w.x, w.y);
+        if (t && !(this.shift || e.shiftKey)) { this.buildType = null; this.ghost = null; this.select({ kind: 'tower', tower: t }); }
         this.refreshBuildSel();
         return;
       }
-      if (tower) { this.buildType = null; this.refreshBuildSel(); this.select({ kind: 'tower', tower }); return; }
-      this.buildType = null; this.hoverTile = null; this.refreshBuildSel();
+      if (tower) { this.buildType = null; this.ghost = null; this.refreshBuildSel(); this.select({ kind: 'tower', tower }); return; }
+      this.ghost = { ...w };
+      this.toast('Hier ist kein Platz – wähle eine freie Stelle neben dem Weg');
+      sfx.play('error');
       return;
     }
-    if (tower) { this.pendingPad = null; this.select(this.selected?.tower === tower ? null : { kind: 'tower', tower }); this.showBuildInfo(null); return; }
+    if (tower) { this.pendingPos = null; this.ghost = null; this.select(this.selected?.tower === tower ? null : { kind: 'tower', tower }); this.showBuildInfo(null); return; }
     if (h && h.dead <= 0 && Math.hypot(w.x - h.x, w.y - h.y) < 26) { this.select(null); this.heroSelected = true; return; }
-    if (Math.hypot(w.x - g.base.x, w.y - g.base.y) < 48) { this.select(this.selected?.kind === 'base' ? null : { kind: 'base' }); return; }
-    if (tile && g.canBuild(tile.x, tile.y)) {
+    if (Math.hypot(w.x - g.base.x, w.y - g.base.y) < 60) { this.select(this.selected?.kind === 'base' ? null : { kind: 'base' }); return; }
+    if (g.canBuild(w.x, w.y)) {
       this.select(null);
-      this.pendingPad = (this.pendingPad && this.pendingPad.x === tile.x && this.pendingPad.y === tile.y) ? null : tile;
-      this.hoverTile = this.pendingPad;
+      this.pendingPos = this.pendingPos && Math.hypot(this.pendingPos.x - w.x, this.pendingPos.y - w.y) < 20 ? null : { ...w };
+      this.ghost = this.pendingPos;
       this.showBuildInfo(null);
       return;
     }
-    this.pendingPad = null; this.hoverTile = null; this.showBuildInfo(null);
+    this.pendingPos = null; this.ghost = null; this.showBuildInfo(null);
     this.select(null);
   }
   key(e) {
@@ -467,7 +473,7 @@ export class UI {
     const overlay = document.querySelector('#scrPause.show, #scrEnd.show, #scrSettings.show, #scrConfirm.show');
     if (k === 'Escape') {
       if (overlay) { if (document.querySelector('#scrPause.show')) this.resumeFromPause(); return; }
-      if (this.targeting || this.buildType || this.selected || this.heroSelected || this.pendingPad) this.cancel();
+      if (this.targeting || this.buildType || this.selected || this.heroSelected || this.pendingPos) this.cancel();
       else this.openPause();
       return;
     }
@@ -505,7 +511,7 @@ export class UI {
   startGame(opts) {
     sfx.init();
     store.data.save = null; store.save();
-    const g = new Game({ ...opts, research: store.data.research.unlocked, progress: store.data });
+    const g = new Game({ difficulty: this.settings.difficulty || 'mittel', ...opts, research: store.data.research.unlocked, progress: store.data });
     this.enterGame(g);
     if (g.hero) setTimeout(() => this.game === g && g.tip('hero'), 2500);
   }
@@ -519,15 +525,16 @@ export class UI {
   }
   enterGame(g) {
     this.game = g; this.mode = 'game';
-    this.lastOpts = { mode: g.mode, mapDef: g.mapDef, endless: g.endless, daily: g.daily };
+    this.lastOpts = { mode: g.mode, mapDef: g.mapDef, endless: g.endless, daily: g.daily, difficulty: g.difficulty };
+    this.$('hDiff').textContent = MODE_NAME[g.mode] + ' · ' + DIFFICULTIES[g.difficulty].name;
     this.hideScreens();
     this.$('hud').classList.remove('hidden');
     this.heroBox.classList.toggle('hidden', !g.hero);
     this.cancel();
     this.paused = false; this.togglePause(false);
-    this.speed = 3; this.cycleSpeed();
+    this.setSpeed(1);
     this.cache.clear(); this.lastPreviewWave = -1;
-    g.particles.quality = this.settings.quality === 'niedrig' ? 0.45 : 1;
+    g.particles.quality = { hoch: 1, mittel: 0.7, niedrig: 0.4 }[this.settings.quality] || 1;
     for (const t of TOWER_ORDER) this.towerBtns[t].classList.toggle('banned', g.rules.banned.includes(t));
     this.$('tip').classList.add('hidden');
     requestAnimationFrame(() => this.layout());
@@ -535,7 +542,7 @@ export class UI {
     this.drainEvents();
   }
   exitToMenu() {
-    this.game = null; this.mode = 'menu';
+    this.game = null; this.mode = 'menu'; sfx.setBoss(false);
     this.$('hud').classList.add('hidden');
     this.$('tip').classList.add('hidden');
     this.$('panel').classList.add('hidden');
@@ -552,13 +559,13 @@ export class UI {
     this.togglePause(true);
     const s = this.$('scrPause');
     s.innerHTML = '';
-    const box = el('div', 'box card', `<h2 style="text-align:center;margin:0 0 4px;letter-spacing:.2em">PAUSE</h2><p style="text-align:center;color:var(--dim);margin:0 0 16px">${MODE_NAME[this.game.mode]} · ${this.game.map.name} · Welle ${this.game.wave}</p>`);
+    const box = el('div', 'box card', `<h2 class="endt" style="font-size:26px">PAUSE</h2><p class="endsub" style="margin-bottom:14px">${MODE_NAME[this.game.mode]} · ${DIFFICULTIES[this.game.difficulty].name} · ${this.game.map.name} · Welle ${this.game.wave}</p>`);
     box.style.width = 'min(420px,100%)';
-    const m = el('div', 'pmenu');
-    m.appendChild(this.btn('<b>Weiterspielen</b>', 'mbtn primary', () => this.resumeFromPause()));
-    m.appendChild(this.btn('<b>Neu starten</b>', 'mbtn', () => this.confirm('Partie neu starten?', 'Der aktuelle Fortschritt dieser Partie geht verloren.', 'Neu starten', () => this.restart(), 'scrPause')));
-    m.appendChild(this.btn('<b>Einstellungen</b>', 'mbtn', () => this.showSettings('scrPause')));
-    m.appendChild(this.btn('<b>Hauptmenü</b>', 'mbtn', () => {
+    const m = el('nav', 'tmenu pmenu');
+    m.appendChild(this.btn('Weiterspielen', 'titem accent', () => this.resumeFromPause()));
+    m.appendChild(this.btn('Neu starten', 'titem', () => this.confirm('Partie neu starten?', 'Der aktuelle Fortschritt dieser Partie geht verloren.', 'Neu starten', () => this.restart(), 'scrPause')));
+    m.appendChild(this.btn('Einstellungen', 'titem', () => this.showSettings('scrPause')));
+    m.appendChild(this.btn('Hauptmenü', 'titem', () => {
       const saved = this.game.canSave();
       if (saved) { store.data.save = this.game.serialize(); store.save(true); }
       this.confirm('Zum Hauptmenü?', saved ? 'Der Spielstand wurde gespeichert – du kannst später fortsetzen.' : 'Gespeichert wird nur zwischen den Wellen. Der Fortschritt seit der letzten geschafften Welle geht verloren.', 'Zum Hauptmenü', () => this.exitToMenu(), 'scrPause');
@@ -592,7 +599,7 @@ export class UI {
         case 'tip': this.showTip(ev.id); break;
         case 'ach': { const a = ACHIEVEMENTS.find(x => x.id === ev.id); if (a) this.toast(`Erfolg freigeschaltet: <b>${a.name}</b> – ${a.desc}`, 'ach'); store.save(); break; }
         case 'basehit': {
-          const r = document.querySelector('.res.hp'); r.classList.remove('flash'); void r.offsetWidth; r.classList.add('flash');
+          const r = document.querySelector('.stat.hp'); r.classList.remove('flash'); void r.offsetWidth; r.classList.add('flash');
           this.r.flash = 0.25; this.r.flashColor = 'red'; break;
         }
         case 'flash': this.r.flash = 0.3; this.r.flashColor = ev.color; break;
@@ -605,7 +612,7 @@ export class UI {
   onEnd(g, won) {
     const s = store.data;
     s.stats.games++; if (won) s.stats.wins++;
-    const key = `${g.mode}:${g.mapDef.id}:${g.endless ? 1 : 0}`;
+    const key = `${g.mode}:${g.difficulty}:${g.mapDef.id}:${g.endless ? 1 : 0}`;
     const score = g.score();
     const prev = s.best[key] || { wave: 0, score: 0, won: false };
     const record = score > prev.score;
@@ -633,7 +640,7 @@ export class UI {
     for (const [k, v] of Object.entries(st.dmgByType)) if (v > bestDmg) { bestDmg = v; bestType = k; }
     const box = el('div', 'box card');
     box.innerHTML = `<h1 class="endt ${won ? 'win' : 'lose'}">${won ? 'STATION GERETTET' : 'KERN ZERSTÖRT'}</h1>
-      <p style="text-align:center;color:var(--dim);margin:6px 0 0">${MODE_NAME[g.mode]} · ${g.map.name}${g.endless ? ' · Endlos' : ''}</p>
+      <p style="text-align:center;color:var(--dim);margin:6px 0 0">${MODE_NAME[g.mode]} · ${DIFFICULTIES[g.difficulty].name} · ${g.map.name}${g.endless ? ' · Endlos' : ''}</p>
       <div class="endstats">
         <div class="hl"><span>Punkte${info.record ? ' · neuer Rekord!' : ''}</span><b>${fmt(info.score)}</b></div>
         <div><span>Wellen geschafft</span><b>${g.clearedUpTo}${g.totalWaves !== Infinity ? ' / ' + g.totalWaves : ''}</b></div>
@@ -673,6 +680,7 @@ export class UI {
     const b = g.base;
     this.set($('hHp'), 'hp', Math.ceil(b.hp) + '');
     this.set($('hHpBar'), 'hpb', (b.hp / b.maxHp * 100).toFixed(1) + '%', 'width');
+    this.set($('hEnergyBar'), 'enb', (g.energy / g.energyMax() * 100).toFixed(1) + '%', 'width');
     this.set($('hShBar'), 'shb', (b.shieldMax ? b.shield / b.shieldMax * 100 : 0).toFixed(1) + '%', 'width');
     const total = g.totalWaves === Infinity ? '∞' : g.totalWaves;
     this.set($('hWave'), 'wv', `Welle ${g.wave}/${total}`);
@@ -750,6 +758,7 @@ export class UI {
     let boss = null;
     for (const e of g.enemies) if (e.boss && e.active) { boss = e; break; }
     $('bossbar').classList.toggle('hidden', !boss);
+    sfx.setBoss(!!boss && !this.paused);
     if (boss) {
       this.set($('bossHp'), 'bh', (boss.hp / boss.maxHp * 100).toFixed(1) + '%', 'width');
       this.set($('bossSh'), 'bs', (boss.maxShield ? boss.shield / boss.maxShield * 100 : 0).toFixed(1) + '%', 'width');
@@ -792,23 +801,18 @@ export class UI {
     const box = el('div', 'box');
     box.appendChild(el('h1', 'title', GAME_TITLE));
     box.appendChild(el('p', 'subtitle', 'Forschungsstation Aurelis · Planet Veyra IV'));
-    const m = el('div', 'menu');
-    if (d.save) {
-      const sv = d.save;
-      const mapName = sv.mapDef?.name || '';
-      m.appendChild(this.btn(`<b>Spiel fortsetzen</b><small>${MODE_NAME[sv.mode]} · ${mapName} · Welle ${sv.wave} geschafft</small>`, 'mbtn primary wide', () => this.continueGame()));
-    }
-    m.appendChild(this.btn('<b>Standard</b><small>30 Wellen mit Tipps für den Einstieg</small>', 'mbtn' + (d.save ? '' : ' primary'), () => this.showMaps('standard')));
-    m.appendChild(this.btn('<b>Experte</b><small>Elite-Gegner, Kommandant, Forschung, Ereignisse</small>', 'mbtn expert', () => this.showMaps('expert')));
-    const dk = todayKey();
-    const dd = d.daily[dk];
-    m.appendChild(this.btn(`<b>Tägliche Herausforderung</b><small>${dd ? `Heute: ${fmt(dd.score)} Punkte${dd.done ? ' · geschafft' : ''}` : 'Feste Regeln für alle – jeden Tag neu'}</small>`, 'mbtn daily', () => this.showDaily()));
-    m.appendChild(this.btn('<b>Karten-Editor</b><small>Eigene Wege und Bauflächen erstellen</small>', 'mbtn', () => this.openEditor()));
-    const ac = Object.keys(d.achievements).length;
-    m.appendChild(this.btn(`<b>Erfolge</b><small>${ac} von ${ACHIEVEMENTS.length} freigeschaltet</small>`, 'mbtn', () => this.showAch()));
-    m.appendChild(this.btn('<b>Einstellungen</b><small>Ton, Grafik, Steuerung</small>', 'mbtn', () => this.showSettings('scrMenu')));
+    const m = el('nav', 'tmenu');
+    const item = (label, sub, fn, cls = '') => m.appendChild(this.btn(`${label}${sub ? `<small>${sub}</small>` : ''}`, 'titem ' + cls, fn));
+    if (d.save) item('Spiel fortsetzen', `${MODE_NAME[d.save.mode]} · ${d.save.mapDef?.name || ''} · Welle ${d.save.wave}`, () => this.continueGame(), 'accent');
+    item('Standard', '30 Wellen · mit Tipps', () => this.showMaps('standard'));
+    item('Advance', 'Elite-Gegner · Kommandant · Forschung', () => this.showMaps('expert'));
+    const dd = d.daily[todayKey()];
+    item('Tägliche Herausforderung', dd ? `heute ${fmt(dd.score)} Punkte${dd.done ? ' · geschafft' : ''}` : 'jeden Tag neue Regeln', () => this.showDaily());
+    item('Karten-Editor', 'eigene Wege und Landschaften', () => this.openEditor());
+    item('Erfolge', `${Object.keys(d.achievements).length} von ${ACHIEVEMENTS.length}`, () => this.showAch());
+    item('Einstellungen', '', () => this.showSettings('scrMenu'));
     box.appendChild(m);
-    box.appendChild(el('div', 'menufoot', `<span>Highscore <b>${fmt(d.highscore)}</b></span><span>Forschungspunkte <b>${d.research.points}</b></span><span>Besiegte Gegner <b>${fmt(d.stats.kills)}</b></span>`));
+    box.appendChild(el('div', 'menufoot', `<span>Highscore <b>${fmt(d.highscore)}</b></span><span>Forschung <b>${d.research.points} P</b></span><span>Besiegte Gegner <b>${fmt(d.stats.kills)}</b></span>`));
     s.appendChild(box);
     this.showScreen('scrMenu');
   }
@@ -816,30 +820,39 @@ export class UI {
   showMaps(mode) {
     const s = this.$('scrMaps');
     s.innerHTML = '';
-    const d = store.data;
+    const d = store.data, st = this.settings;
+    if (!DIFFICULTIES[st.difficulty]) st.difficulty = 'mittel';
     const box = el('div', 'box card');
-    const hdr = el('div', 'hdr', `<h2>${MODE_NAME[mode]} – Karte wählen</h2>`);
-    const tg = el('label', 'toggle', `<input type="checkbox" ${this.endless ? 'checked' : ''}><span class="sw"></span>Endlos-Modus`);
-    tg.querySelector('input').onchange = (e) => { this.endless = e.target.checked; sfx.play('click'); this.showMaps(mode); };
-    hdr.appendChild(tg);
-    if (mode === 'expert') hdr.appendChild(this.btn(`Forschungslabor (${d.research.points} P)`, 'btn', () => this.showResearch('maps-expert')));
+    const hdr = el('div', 'hdr', `<h2>${MODE_NAME[mode]} · Karte wählen</h2>`);
+    if (mode === 'expert') hdr.appendChild(this.btn(`Forschungslabor · ${d.research.points} P`, 'btn', () => this.showResearch('maps-expert')));
     hdr.appendChild(this.btn('Zurück', 'btn', () => this.showMenu()));
     box.appendChild(hdr);
-    if (mode === 'expert') box.appendChild(el('p', '', '<span style="color:var(--dim);font-size:13px">Weniger Start-Credits, zähere Gegner und Elite-Varianten. Dein Kommandant kämpft mit, Karten-Ereignisse fordern dich heraus. Jede Runde bringt Forschungspunkte für dauerhafte Verbesserungen.</span>'));
-    const grid = el('div', 'maps');
+    const opt = el('div', 'optrow', '<span class="lbl">Schwierigkeit</span>');
+    const seg = el('div', 'seg');
+    for (const k of DIFF_ORDER) seg.appendChild(this.btn(DIFFICULTIES[k].name, st.difficulty === k ? 'on' : '', () => { st.difficulty = k; store.save(); this.showMaps(mode); }));
+    opt.appendChild(seg);
+    const tg = el('label', 'toggle', `<input type="checkbox" ${this.endless ? 'checked' : ''}><span class="sw"></span>Endlos-Modus`);
+    tg.querySelector('input').onchange = (e) => { this.endless = e.target.checked; sfx.play('click'); this.showMaps(mode); };
+    opt.appendChild(tg);
+    box.appendChild(opt);
+    const D = DIFFICULTIES[st.difficulty];
+    box.appendChild(el('p', 'diffdesc', `${D.desc} Start mit ${D.startCredits} Credits, Kern mit ${mode === 'expert' ? D.baseHp : D.baseHp} Leben.${mode === 'expert' ? ' Advance: Elite-Gegner, Kommandant, Karten-Ereignisse und Forschungspunkte.' : ''}`));
+    const list = el('div', 'mlist');
     const all = [...MAPS, ...d.customMaps.map(m => ({ ...m, custom: true }))];
     for (const m of all) {
-      const key = `${mode}:${m.id}:${this.endless ? 1 : 0}`;
+      const key = `${mode}:${st.difficulty}:${m.id}:${this.endless ? 1 : 0}`;
       const best = d.best[key];
-      const c = el('button', 'mapc');
-      const cv = document.createElement('canvas'); cv.width = 360; cv.height = 200;
-      c.appendChild(cv);
+      const row = el('button', 'mrow');
+      const cv = document.createElement('canvas'); cv.width = 264; cv.height = 147;
+      row.appendChild(cv);
       drawThumb(cv, m);
-      c.appendChild(el('div', 'mi', `<h4>${m.name}${m.custom ? ' <small style="color:var(--gold)">(eigene)</small>' : ''}</h4><p>${m.desc || 'Eigene Karte aus dem Editor.'}</p><div class="best">${best ? `Rekord: Welle ${best.wave} · ${fmt(best.score)} Punkte${best.won ? ' · ★ Sieg' : ''}` : 'Noch nicht gespielt'}</div>`));
-      c.onclick = () => { sfx.init(); sfx.play('click'); this.startGame({ mode, mapDef: m, endless: this.endless }); };
-      grid.appendChild(c);
+      const bn = BIOMES[normalizeDef(m).biome]?.name || '';
+      row.appendChild(el('div', '', `<h4>${m.name}</h4><p>${m.desc || 'Eigene Karte aus dem Editor.'}</p><span class="lbl">${bn}${m.custom ? ' · eigene Karte' : ''}</span>`));
+      row.appendChild(el('div', 'best' + (best ? '' : ' none'), best ? `Welle ${best.wave}<br>${fmt(best.score)} P${best.won ? '<br>Sieg' : ''}` : 'neu'));
+      row.onclick = () => { sfx.init(); sfx.play('click'); this.startGame({ mode, mapDef: m, endless: this.endless, difficulty: st.difficulty }); };
+      list.appendChild(row);
     }
-    box.appendChild(grid);
+    box.appendChild(list);
     s.appendChild(box);
     this.showScreen('scrMaps');
   }
@@ -856,7 +869,7 @@ export class UI {
     const hdr = el('div', 'hdr', `<h2>Tägliche Herausforderung</h2>`);
     hdr.appendChild(this.btn('Zurück', 'btn', () => this.showMenu()));
     box.appendChild(hdr);
-    box.appendChild(el('p', '', `<span style="color:var(--dim)">${da}.${mo}.${y} – heute spielen alle mit denselben Regeln und denselben Wellen. 20 Wellen, Experte-Regeln mit Kommandant und Ereignissen, aber ohne Forschungs-Boni.</span>`));
+    box.appendChild(el('p', '', `<span style="color:var(--dim)">${da}.${mo}.${y} – heute spielen alle mit denselben Regeln und denselben Wellen. 20 Wellen auf Schwierigkeit Mittel, mit Kommandant und Ereignissen wie im Advance-Modus, aber ohne Forschungs-Boni.</span>`));
     const cv = document.createElement('canvas'); cv.width = 360; cv.height = 200; cv.style.cssText = 'width:100%;max-width:360px;border-radius:12px;display:block;margin:8px auto;border:1px solid var(--line2)';
     drawThumb(cv, map);
     box.appendChild(cv);
@@ -885,7 +898,7 @@ export class UI {
     const hdr = el('div', 'hdr', `<h2>Forschungslabor</h2><span style="font-family:var(--mono);color:var(--violet);font-size:18px;font-weight:800">${R.points} Punkte</span>`);
     hdr.appendChild(this.btn('Zurück', 'btn', () => back === 'maps-expert' ? this.showMaps('expert') : this.showMenu()));
     box.appendChild(hdr);
-    box.appendChild(el('p', '', '<span style="color:var(--dim);font-size:13px">Forschungspunkte gibt es für jede Experte-Partie (je 2 geschaffte Wellen 1 Punkt, Bosse und Siege extra). Verbesserungen gelten dauerhaft im Experte-Modus.</span>'));
+    box.appendChild(el('p', '', '<span style="color:var(--dim);font-size:13px">Forschungspunkte gibt es für jede Advance-Partie (je 2 geschaffte Wellen 1 Punkt, Bosse und Siege extra, höhere Schwierigkeit bringt mehr). Verbesserungen gelten dauerhaft im Advance-Modus.</span>'));
     const grid = el('div', 'research');
     RESEARCH_BRANCHES.forEach((bn, bi) => {
       const col = el('div', 'rcol', `<h3>${bn}</h3>`);
@@ -962,10 +975,10 @@ export class UI {
     tog('tips', 'Tipps anzeigen');
     tog('showFps', 'Bilder pro Sekunde anzeigen', (v) => this.$('fps').classList.toggle('hidden', !v));
     const q = el('div', 'seg');
-    for (const [v, l] of [['hoch', 'Hoch'], ['niedrig', 'Sparsam']]) {
-      q.appendChild(this.btn(l, st.quality === v ? 'on' : '', () => { st.quality = v; store.save(); if (this.game) this.game.particles.quality = v === 'niedrig' ? 0.45 : 1; this.showSettings(back); }));
+    for (const [v, l] of [['hoch', 'Hoch'], ['mittel', 'Mittel'], ['niedrig', 'Niedrig']]) {
+      q.appendChild(this.btn(l, st.quality === v ? 'on' : '', () => { st.quality = v; store.save(); if (this.game) this.game.particles.quality = { hoch: 1, mittel: 0.7, niedrig: 0.4 }[v]; this.r.setQuality(v); this.showSettings(back); }));
     }
-    row('Grafik-Effekte', q);
+    row('Grafik', q);
     const rb = el('div', 'rowbtns'); rb.style.justifyContent = 'flex-end';
     rb.appendChild(this.btn('Tipps erneut zeigen', 'btn', () => { store.data.tips = {}; store.save(); this.toast('Tipps werden wieder angezeigt', 'good'); }));
     rb.appendChild(this.btn('Alle Daten löschen', 'btn danger', () => this.confirm('Alle Daten löschen?', 'Rekorde, Forschung, Erfolge, eigene Karten und Einstellungen werden gelöscht.', 'Löschen', () => { store.reset(); location.reload(); }, 'scrSettings')));
@@ -1008,6 +1021,6 @@ export function statLines(sp, g, t) {
     case 'radar': L.push(['Scanbereich', n(range)]); if (sp.rangeBuff) L.push(['Reichweite +', Math.round(sp.rangeBuff * 100) + ' %']); if (sp.dmgBuff) L.push(['Schaden +', Math.round(sp.dmgBuff * 100) + ' %']); if (sp.markDmg) L.push(['Markierung', '+15 %']); break;
   }
   if (sp.kind !== 'shieldgen' && sp.kind !== 'radar') L.push(['Reichweite', n(range)]);
-  if (sp.kind !== 'shieldgen' && sp.kind !== 'radar') L.push(['Trifft', sp.ground !== false && sp.air ? 'Boden + Luft' : sp.air ? 'nur Luft' : 'nur Boden']);
+  if (sp.kind !== 'shieldgen' && sp.kind !== 'radar') L.push(['Ziele', sp.ground !== false && sp.air ? 'alle' : sp.air ? 'Luft' : 'Boden']);
   return L;
 }

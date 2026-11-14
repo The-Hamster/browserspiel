@@ -129,7 +129,7 @@ export const ENEMIES = {
   flyer:    { name: 'Gleiter', hp: 65, speed: 58, armor: 0, reward: 9, dmg: 2, r: 13, color: '#ffe14d', cost: 3, spacing: 0.9, air: true, desc: 'Fliegt direkt zum Kern.' },
   splitter: { name: 'Teiler', hp: 140, speed: 42, armor: 0, reward: 10, dmg: 2, r: 16, color: '#ff4fa0', cost: 5, spacing: 1.2, split: { type: 'mite', n: 3 }, desc: 'Zerfällt in kleine Splitterlinge.' },
   mite:     { name: 'Splitterling', hp: 26, speed: 86, armor: 0, reward: 2, dmg: 1, r: 7, color: '#ff8cc6', cost: 1, spacing: 0.3 },
-  boss:     { name: 'Schwarmträger', hp: 3000, shield: 600, speed: 20, armor: 6, reward: 250, dmg: 30, r: 36, color: '#ff3d6e', cost: 60, spacing: 8, boss: true, spawn: { type: 'swarm', cd: 3.5, n: 3 }, shoot: { dmg: 25, cd: 2.4, range: 2.8 }, desc: 'Riesiges Mutterschiff. Erscheint alle 10 Wellen.' },
+  boss:     { name: 'Schwarmträger', hp: 2000, shield: 400, speed: 20, armor: 3, reward: 250, dmg: 30, r: 36, color: '#ff3d6e', cost: 60, spacing: 8, boss: true, spawn: { type: 'swarm', cd: 4.5, n: 3 }, shoot: { dmg: 14, cd: 4.5, range: 2.8, charge: 1.1 }, desc: 'Riesiges Mutterschiff alle 10 Wellen. EMP zerstört sein Schild.' },
 };
 export const ENEMY_UNLOCK = { swarm: 1, tank: 3, flyer: 4, shield: 5, splitter: 6, phantom: 7 };
 export const ELITE_INFO = {
@@ -187,7 +187,7 @@ export const HERO = {
 };
 export const heroXpNeed = (lvl) => Math.round(45 * Math.pow(lvl, 1.55));
 
-// ---------------------------------------------------------------- Forschung (Experte)
+// ---------------------------------------------------------------- Forschung (Advance)
 export const RESEARCH = [
   { id: 'a1', branch: 0, name: 'Verstärkte Rahmen', cost: 2, req: [], desc: 'Türme haben 25 % mehr Lebenspunkte.' },
   { id: 'a2', branch: 0, name: 'Prismenlaser', cost: 4, req: ['a1'], desc: 'Neue Variante für den Pulslaser.' },
@@ -213,7 +213,7 @@ export const ACHIEVEMENTS = [
   { id: 'wave10', name: 'Feuertaufe', desc: 'Erreiche Welle 10 in einem Spiel.' },
   { id: 'boss1', name: 'Kolossbrecher', desc: 'Besiege einen Schwarmträger.' },
   { id: 'win_std', name: 'Stationsretter', desc: 'Gewinne eine Partie im Standard-Modus.' },
-  { id: 'win_exp', name: 'Veteran von Veyra', desc: 'Gewinne eine Partie im Experte-Modus.' },
+  { id: 'win_exp', name: 'Veteran von Veyra', desc: 'Gewinne eine Partie im Advance-Modus.' },
   { id: 'builder', name: 'Ingenieurin des Jahres', desc: 'Baue 20 Türme in einem Spiel.' },
   { id: 'variant', name: 'Spezialist', desc: 'Rüste einen Turm auf eine Variante auf.' },
   { id: 'base_max', name: 'Festung', desc: 'Baue einen Zweig des Kerns komplett aus.' },
@@ -243,38 +243,52 @@ export const DAILY_MODS = [
   { id: 'elite', name: 'Elitejagd', desc: 'Doppelt so viele Elite-Gegner, 30 % mehr Beute von ihnen.' },
 ];
 
+// ---------------------------------------------------------------- Landschaften
+export const BIOMES = {
+  wueste:    { name: 'Glutwüste',     ground: '#3b2217', ground2: '#5b3622', dark: '#1f110a', road: '#8c6446', roadEdge: '#4a2e1d', water: '#ff5a1e', water2: '#ffb347', waterGlow: true,  accent: '#ff8a4a', lane: '#ffb15a', rock: '#6e4632', crystal: '#ffae4a', plant: '#b85c2a', plant2: '#e08a3a' },
+  eis:       { name: 'Frostebene',    ground: '#24323f', ground2: '#3d5566', dark: '#141c25', road: '#9fb2bf', roadEdge: '#4f6272', water: '#7fd8ff', water2: '#e6fbff', waterGlow: false, accent: '#46e0ff', lane: '#9cf3ff', rock: '#5b6b7b', crystal: '#9ff6ff', plant: '#7aa6bf', plant2: '#d8f2ff' },
+  kristall:  { name: 'Kristallfeld',  ground: '#1f1734', ground2: '#35275a', dark: '#100b1e', road: '#5e5175', roadEdge: '#2b2142', water: '#b04aff', water2: '#f0b8ff', waterGlow: true,  accent: '#b98aff', lane: '#d8bcff', rock: '#463a62', crystal: '#d18cff', plant: '#7a4ab8', plant2: '#ff7ad8' },
+  dschungel: { name: 'Giftdschungel', ground: '#18291a', ground2: '#2b4627', dark: '#0b150b', road: '#6e5d3c', roadEdge: '#352c1b', water: '#6aff3a', water2: '#d8ff9a', waterGlow: true,  accent: '#7dff6a', lane: '#c4ff8a', rock: '#3d4a36', crystal: '#7dffa8', plant: '#2f6e2a', plant2: '#6fbf3a' },
+};
+export const BIOME_ORDER = ['wueste', 'eis', 'kristall', 'dschungel'];
+
 // ---------------------------------------------------------------- Karten
-// Wegpunkte in Feldkoordinaten; Startpunkt darf außerhalb liegen (-1 / 18).
+// Wegpunkte in Feld-Einheiten (frei, auch Kommazahlen). Ecken werden automatisch rund.
+// water: Flüsse/Seen, obstacles: Hindernisse (x, y, Radius, Art). Gebaut wird frei überall, wo Platz ist.
 export const MAPS = [
   {
-    id: 'krater', name: 'Kraterpass', desc: 'Ein gewundener Weg durch den Einschlagkrater. Ideal zum Einstieg.',
-    theme: { ground: '#1c1210', ground2: '#2b1a14', accent: '#ff8a4a', lane: '#ffb15a' },
-    paths: [[[-1, 2], [3, 2], [3, 7], [8, 7], [8, 2], [13, 2], [13, 6], [15, 6]]],
-    base: [15, 6],
+    id: 'krater', name: 'Kraterpass', biome: 'wueste', desc: 'Ein gewundener Weg durch den Glutkrater. Ideal zum Einstieg.',
+    paths: [[[-1.2, 2.2], [2.5, 2.2], [4, 3.2], [4.3, 6.2], [5.6, 7.8], [8, 7.9], [9.3, 6.6], [9.2, 3.6], [10.6, 2.0], [13.2, 2.1], [14.6, 3.4], [15, 6.6]]],
+    base: [15, 6.6],
+    water: [{ pts: [[10.8, 10.8], [11.6, 9.2], [13.4, 8.7], [15.8, 9.3], [18.8, 8.8]], w: 0.85 }],
+    obstacles: [[6.6, 4.6, 0.65, 'rock'], [1.3, 6.4, 0.6, 'rock'], [12, 5.2, 0.55, 'crystal']],
   },
   {
-    id: 'zwilling', name: 'Zwillingsschlucht', desc: 'Zwei Angriffswege, die sich vor dem Kern vereinen.',
-    theme: { ground: '#0d171c', ground2: '#12242b', accent: '#46e0ff', lane: '#7cf0ff' },
+    id: 'zwilling', name: 'Zwillingsschlucht', biome: 'eis', desc: 'Zwei Angriffswege über die Frostebene, die sich vor dem Kern vereinen.',
     paths: [
-      [[-1, 1], [6, 1], [6, 5], [15, 5]],
-      [[-1, 8], [10, 8], [10, 5], [15, 5]],
+      [[-1.2, 1.5], [3, 1.5], [5.2, 2.4], [6.6, 4.2], [8.6, 5.2], [15.2, 5.2]],
+      [[-1.2, 8.6], [3.5, 8.6], [6.2, 7.8], [7.8, 6.2], [9.4, 5.3], [11, 5.2], [15.2, 5.2]],
     ],
-    base: [15, 5],
+    base: [15.2, 5.2],
+    water: [{ pts: [[3.2, -0.8], [2.6, 2.8], [1.2, 4.8], [-0.8, 5.8]], w: 0.8 }],
+    obstacles: [[11.2, 2.6, 0.6, 'crystal'], [12.6, 8, 0.7, 'rock'], [4.6, 5.2, 0.55, 'tree']],
   },
   {
-    id: 'spirale', name: 'Spiralkern', desc: 'Ein langer Spiralweg ins Zentrum. Lange Wege, wenig Platz.',
-    theme: { ground: '#140f1e', ground2: '#1f1530', accent: '#b98aff', lane: '#d2b4ff' },
-    paths: [[[18, 1], [1, 1], [1, 8], [16, 8], [16, 3], [4, 3], [4, 6], [11, 6]]],
-    base: [11, 6],
+    id: 'spirale', name: 'Spiralkern', biome: 'kristall', desc: 'Ein langer Spiralweg ins Zentrum. Lange Wege, wenig Platz.',
+    paths: [[[18.8, 1.2], [1.3, 1.2], [1.3, 8.6], [16.6, 8.6], [16.6, 3.4], [4.1, 3.4], [4.1, 6.3], [11.4, 6.3]]],
+    base: [11.4, 6.3],
+    water: [],
+    obstacles: [[8, 5.1, 0.45, 'crystal'], [14.2, 6.1, 0.5, 'crystal']],
   },
   {
-    id: 'gabel', name: 'Toxische Gabelung', desc: 'Der Weg teilt sich – die Gegner wählen zufällig eine Route.',
-    theme: { ground: '#0e1810', ground2: '#152616', accent: '#7dff6a', lane: '#b4ff8a' },
+    id: 'gabel', name: 'Toxische Gabelung', biome: 'dschungel', desc: 'Der Weg teilt sich um einen Giftsee – die Gegner wählen zufällig eine Route.',
     paths: [
-      [[-1, 5], [3, 5], [3, 1], [12, 1], [12, 5], [16, 5]],
-      [[-1, 5], [3, 5], [3, 8], [12, 8], [12, 5], [16, 5]],
+      [[-1.2, 5], [2.2, 5], [3.6, 2.6], [6, 1.3], [10, 1.3], [12.4, 2.4], [13.6, 4.4], [16.2, 5]],
+      [[-1.2, 5], [2.2, 5], [3.6, 7.4], [6, 8.7], [10, 8.7], [12.4, 7.6], [13.6, 5.6], [16.2, 5]],
     ],
-    base: [16, 5],
+    base: [16.2, 5],
+    water: [{ pts: [[5.9, 4.7], [8, 5.4], [10.3, 4.8]], w: 1.6 }],
+    obstacles: [[1.2, 2.2, 0.7, 'tree'], [1.4, 8, 0.7, 'tree'], [15.6, 1.6, 0.6, 'tree'], [15.4, 8.4, 0.65, 'tree']],
   },
 ];
 

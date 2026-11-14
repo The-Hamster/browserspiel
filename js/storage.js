@@ -30,7 +30,9 @@ export const store = {
     try {
       const raw = localStorage.getItem(KEY);
       if (raw) data = merge(DEFAULTS(), JSON.parse(raw));
+      else if (window.matchMedia && matchMedia('(pointer: coarse)').matches) data.settings.quality = 'mittel';
     } catch (e) { data = DEFAULTS(); }
+    if (!data.settings.difficulty) data.settings.difficulty = 'mittel';
     return data;
   },
   save(now = false) {

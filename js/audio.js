@@ -119,6 +119,36 @@ class Sfx {
     }
   }
 
+  // Boss-Musik: treibender Bass und Schlagwerk, solange ein Boss lebt
+  setBoss(on) {
+    if (!this.ctx) return;
+    if (on === !!this.bossTimer) return;
+    if (!on) { clearInterval(this.bossTimer); this.bossTimer = null; return; }
+    const c = this.ctx, step = 0.15;
+    let beat = 0, next = c.currentTime + 0.05;
+    const notes = [55, 55, 65.4, 55, 49, 55, 73.4, 65.4];
+    const tick = () => {
+      if (!this.musicOn || this.muted) { next = c.currentTime + 0.05; return; }
+      while (next < c.currentTime + 0.3) {
+        const f = notes[(beat >> 1) % notes.length];
+        const o = c.createOscillator(), gg = c.createGain(), lp = c.createBiquadFilter();
+        o.type = 'sawtooth'; o.frequency.value = f; lp.type = 'lowpass'; lp.frequency.value = 500 + (beat % 4 === 0 ? 400 : 0);
+        gg.gain.setValueAtTime(0.0001, next); gg.gain.exponentialRampToValueAtTime(0.16, next + 0.01); gg.gain.exponentialRampToValueAtTime(0.0001, next + step * 0.9);
+        o.connect(lp); lp.connect(gg); gg.connect(this.musicBus); o.start(next); o.stop(next + step);
+        if (beat % 2 === 0) {
+          const s = c.createBufferSource(); s.buffer = this.noise; const hp = c.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = beat % 8 === 4 ? 1500 : 7000;
+          const ng = c.createGain(); const v = beat % 8 === 4 ? 0.12 : 0.04;
+          ng.gain.setValueAtTime(v, next); ng.gain.exponentialRampToValueAtTime(0.0001, next + (beat % 8 === 4 ? 0.18 : 0.05));
+          s.connect(hp); hp.connect(ng); ng.connect(this.musicBus); s.start(next); s.stop(next + 0.2);
+        }
+        if (beat % 8 === 0) { const k = c.createOscillator(), kg = c.createGain(); k.frequency.setValueAtTime(120, next); k.frequency.exponentialRampToValueAtTime(40, next + 0.15); kg.gain.setValueAtTime(0.35, next); kg.gain.exponentialRampToValueAtTime(0.0001, next + 0.2); k.connect(kg); kg.connect(this.musicBus); k.start(next); k.stop(next + 0.22); }
+        next += step; beat++;
+      }
+    };
+    this.bossTimer = setInterval(tick, 100);
+    tick();
+  }
+
   // Ruhiger Klangteppich
   startMusic() {
     const c = this.ctx;
