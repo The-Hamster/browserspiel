@@ -35,6 +35,16 @@ export class Renderer {
     if (res !== this.res) { this.res = res; clearSpriteCache(); }
     this.buildStars();
     this.mapKey = null;
+    this.prewarmed = false;
+  }
+
+  // Alle Sprites einmal vorab erzeugen, damit es im Spiel nicht ruckelt
+  prewarm() {
+    this.prewarmed = true;
+    for (const type of Object.keys(ENEMIES)) { enemySprite(type, false, this.res); if (!ENEMIES[type].boss) enemySprite(type, true, this.res); }
+    for (const type of Object.keys(TOWERS)) for (const tier of Object.keys(TOWERS[type].tiers)) { towerBaseSprite(type, tier, this.res); towerHeadSprite(type, tier, this.res); }
+    for (let i = 0; i < PAL.length; i++) glow(i);
+    smoke();
   }
 
   screenToWorld(x, y) { return { x: (x - this.ox) / this.scale, y: (y - this.oy) / this.scale }; }
@@ -251,6 +261,7 @@ export class Renderer {
     const sh = shakeOn ? game.shake : 0;
     const shx = (Math.random() - 0.5) * sh, shy = (Math.random() - 0.5) * sh;
     this.drawBackground(dt, shx * 0.05 + ui.mouseNX * 0.3, shy * 0.05 + ui.mouseNY * 0.3);
+    if (!this.prewarmed) this.prewarm();
     this.ensureMap(game.map);
     this.worldTransform(shx, shy);
     g.globalAlpha = 1; g.globalCompositeOperation = 'source-over';
@@ -573,7 +584,7 @@ export class Renderer {
       if (h.moving) { g.strokeStyle = 'rgba(93,255,176,0.4)'; g.setLineDash([4, 6]); g.beginPath(); g.moveTo(h.x, h.y); g.lineTo(h.tx, h.ty); g.stroke(); g.setLineDash([]); }
     }
     g.globalCompositeOperation = 'lighter';
-    this.glowAt(ci('#5dffb0'), h.x, h.y, 56, 0.35);
+    this.glowAt(ci('#5dffb0'), h.x, h.y, 80, 0.5);
     if (h.od > 0) {
       g.strokeStyle = rgba('#ffcf3a', 0.4 + Math.sin(t * 8) * 0.2); g.lineWidth = 2;
       g.beginPath(); g.arc(h.x, h.y, 2.5 * TILE, 0, 7); g.stroke();
@@ -581,21 +592,25 @@ export class Renderer {
     }
     g.globalCompositeOperation = 'source-over';
     g.save(); g.translate(h.x, h.y); g.rotate(h.angle);
-    const step = h.moving ? Math.sin(h.walk) * 4 : 0;
-    g.fillStyle = '#1b2a26';
-    g.fillRect(-6 + step, -9, 10, 5); g.fillRect(-6 - step, 4, 10, 5);
-    g.fillStyle = '#26413a'; g.strokeStyle = '#5dffb0'; g.lineWidth = 2; g.shadowColor = '#5dffb0'; g.shadowBlur = 8;
-    g.beginPath(); g.ellipse(0, 0, 10, 12, 0, 0, 7); g.fill(); g.stroke();
-    g.fillStyle = '#0d1512'; g.fillRect(6, 3, 14, 4); g.strokeRect(6, 3, 14, 4);
-    g.fillStyle = '#c8ffe8'; g.beginPath(); g.arc(3, -2, 4, 0, 7); g.fill();
+    const step = h.moving ? Math.sin(h.walk) * 5 : 0;
+    g.fillStyle = '#16302a'; g.strokeStyle = '#5dffb0'; g.lineWidth = 1.5;
+    g.fillRect(-8 + step, -12, 12, 6); g.strokeRect(-8 + step, -12, 12, 6);
+    g.fillRect(-8 - step, 6, 12, 6); g.strokeRect(-8 - step, 6, 12, 6);
+    g.shadowColor = '#5dffb0'; g.shadowBlur = 12;
+    g.fillStyle = '#2f6a58'; g.lineWidth = 2.5;
+    g.beginPath(); g.moveTo(15, 0); g.lineTo(4, -13); g.lineTo(-11, -10); g.lineTo(-11, 10); g.lineTo(4, 13); g.closePath(); g.fill(); g.stroke();
+    g.fillStyle = '#0d1512'; g.fillRect(8, 5, 18, 5); g.strokeRect(8, 5, 18, 5);
+    g.fillStyle = '#e8fff6'; g.beginPath(); g.arc(1, 0, 5.5, 0, 7); g.fill();
+    g.fillStyle = '#5dffb0'; g.fillRect(3, -2, 4, 4);
     g.shadowBlur = 0;
     g.restore();
     // Balken + Stufe
     const f = h.hp / h.maxHp;
-    g.fillStyle = 'rgba(0,0,0,0.6)'; g.fillRect(h.x - 16, h.y - 26, 32, 5);
-    g.fillStyle = '#5dffb0'; g.fillRect(h.x - 15, h.y - 25, 30 * f, 3);
-    g.fillStyle = '#ffd23e'; g.font = 'bold 10px system-ui, sans-serif'; g.textAlign = 'center';
-    g.fillText(h.level, h.x + 22, h.y - 20);
+    g.fillStyle = 'rgba(0,0,0,0.6)'; g.fillRect(h.x - 18, h.y - 30, 36, 5);
+    g.fillStyle = '#5dffb0'; g.fillRect(h.x - 17, h.y - 29, 34 * f, 3);
+    g.fillStyle = '#ffd23e'; g.beginPath(); g.arc(h.x + 25, h.y - 27, 7, 0, 7); g.fill();
+    g.fillStyle = '#000'; g.font = 'bold 10px system-ui, sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle';
+    g.fillText(h.level, h.x + 25, h.y - 26.5); g.textBaseline = 'alphabetic';
   }
 
   drawBeams(game) {

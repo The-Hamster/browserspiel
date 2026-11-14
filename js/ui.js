@@ -38,7 +38,7 @@ const TIPS = {
   flyer: ['Gleiter', 'Flieger ignorieren den Weg und fliegen direkt zum Kern. Plasmawerfer treffen sie nicht – Raketenwerfer sind doppelt so stark.'],
   shield: ['Schildträger', 'Ihr Energieschild schluckt Schaden. Der EMP-Turm zerstört Schilde besonders schnell.'],
   phantom: ['Getarnte Phantome', 'Phantome sind unsichtbar. Nur ein Radarmast (oder der Kern aus nächster Nähe) macht sie für deine Türme sichtbar.'],
-  abilities: ['Spezialfähigkeiten', 'Links findest du Fähigkeiten. Sie kosten Energie und brauchen danach eine Pause. Orbitalschlag: Taste Q und dann auf die Karte tippen.'],
+  abilities: ['Spezialfähigkeiten', 'Links findest du Fähigkeiten. Sie kosten Energie und brauchen danach eine Pause. Orbitalschlag: Knopf antippen (Taste Q), dann ein Ziel auf der Karte wählen.'],
   boss: ['Schwarmträger!', 'Ein Mutterschiff: riesig, mit Schild, setzt Schwärmer ab und beschießt Türme. Zeit für Orbitalschlag und Zeitverzerrung!'],
   basehit: ['Kern getroffen', 'Gegner, die den Kern erreichen, beschädigen ihn. Baue mehr Türme oder verstärke den Kern selbst.'],
   elite: ['Elite-Gegner', 'Gegner mit goldenem Ring sind Elite: zäher und mit Sonderfähigkeiten.'],
@@ -624,6 +624,8 @@ export class UI {
   }
   showEnd(g, won, info) {
     this.togglePause(true);
+    this.$('tip').classList.add('hidden');
+    this.select(null);
     const s = this.$('scrEnd');
     s.innerHTML = '';
     const st = g.stats;
