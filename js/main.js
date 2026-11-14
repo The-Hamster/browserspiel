@@ -57,5 +57,10 @@ function frame(now) {
 }
 requestAnimationFrame(frame);
 
+// App-Modus: offline spielbar und installierbar (nur über http/https)
+if ('serviceWorker' in navigator && location.protocol.startsWith('http') && !/localhost:81\d\d/.test(location.host)) {
+  navigator.serviceWorker.register('sw.js').catch(() => {});
+}
+
 // Für automatische Tests
 window.__kw = { ui, renderer, store, perf };

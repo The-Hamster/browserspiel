@@ -1,5 +1,5 @@
 // Vorgerenderte Grafiken: Glow-Punkte, Gegner, Türme, Icons
-import { ENEMIES, TOWERS } from './data.js';
+import { ENEMIES, TOWERS, TOWER_LOOK, TILT } from './data.js';
 import { rgba, mix } from './util.js';
 
 export const PAL = ['#ffffff', '#36f1ff', '#ff6b3d', '#ffcf3a', '#c9a7ff', '#5dffb0', '#4f9dff', '#ff3d5a',
@@ -168,6 +168,23 @@ export function drawEnemyShape(g, type, r, col, elite, res = 1, frame = 0) {
       g.shadowBlur = 0;
       break;
     }
+  }
+  if (type === 'boss2') {
+    // schwerer Kampfläufer mit vier Beinen
+    g.strokeStyle = '#1c1f25'; g.lineWidth = r * 0.16; g.lineCap = 'round';
+    for (const [lx, ly] of [[0.55, -0.85], [-0.55, -0.85], [0.55, 0.85], [-0.55, 0.85]]) {
+      const sw = (lx > 0 ? f : -f) * (ly > 0 ? 1 : -1) * 0.18;
+      g.beginPath(); g.moveTo(lx * r * 0.6, ly * r * 0.5); g.lineTo((lx + sw) * r * 1.05, ly * r * 1.05); g.lineTo((lx + sw) * r * 1.2, ly * r * 1.25); g.stroke();
+    }
+    g.fillStyle = shade(g, -r, -r, r, r, '#4a3f2a', 0.55);
+    roundRect(g, -r * 0.85, -r * 0.62, r * 1.7, r * 1.24, r * 0.25); g.fill();
+    g.strokeStyle = rgba(col, 0.9); g.lineWidth = lw * 0.8; g.stroke();
+    g.fillStyle = shade(g, -r * 0.5, -r * 0.4, r * 0.5, r * 0.4, '#6a5a3a', 0.5);
+    roundRect(g, -r * 0.5, -r * 0.42, r, r * 0.84, r * 0.15); g.fill();
+    g.fillStyle = shade(g, 0, -r * 0.1, 0, r * 0.1, '#3a3f48'); for (const sy of [-0.25, 0.25]) g.fillRect(r * 0.4, sy * r - r * 0.07, r * 0.75, r * 0.14);
+    neon(g, col, 18 * res); g.fillStyle = '#fff0c8'; g.beginPath(); g.arc(-r * 0.05, 0, r * 0.18, 0, 7); g.fill();
+    g.fillStyle = col; for (const sx of [-0.6, 0.6]) { g.beginPath(); g.arc(sx * r, 0, r * 0.07, 0, 7); g.fill(); }
+    g.shadowBlur = 0;
   }
   if (elite) {
     neon(g, '#ffd23e', 8 * res); g.strokeStyle = '#ffd23e'; g.lineWidth = Math.max(1.2, r * 0.09);
@@ -393,10 +410,16 @@ export function towerIcon(type, tier = '1') {
   const key = type + tier;
   if (iconCache.has(key)) return iconCache.get(key);
   const c = mk(96, 96), g = c.getContext('2d');
-  g.scale(96 / 74, 96 / 74); g.translate(37, 35);
-  drawTowerBase(g, type, tier, 1.5);
-  g.rotate(-0.6);
-  drawTowerHead(g, type, tier, 1.5);
+  const body = towerBodySprite(type, tier, 2);
+  const sc = Math.min(100 / body.w, 96 / (body.h - 14));
+  g.translate(48, 48 + (body.ay - body.h / 2) * sc + 6);
+  g.scale(sc, sc);
+  g.drawImage(body.c, -body.ax, -body.ay, body.w, body.h);
+  g.save(); g.translate(0, -body.top); g.scale(1, TILT); g.rotate(-0.6);
+  const L = TOWER_LOOK[type], hs = L.shape === 'mast' ? 0.8 : L.R < 18 ? 0.9 : 1.08;
+  g.scale(hs, hs);
+  drawTowerHead(g, type, tier, 2);
+  g.restore();
   const url = c.toDataURL();
   iconCache.set(key, url);
   return url;
@@ -412,4 +435,161 @@ export function enemyIcon(type, elite = false) {
   const url = c.toDataURL();
   iconCache.set(key, url);
   return url;
+}
+
+// ---------------------------------------------------------------- Aufrechte Gebäude (leichte Seitenansicht)
+
+function footprint(shape, R) {
+  const P = [];
+  const ring = (n, rot, rr = R) => { for (let i = 0; i < n; i++) { const a = rot + i / n * Math.PI * 2; P.push([Math.cos(a) * rr, Math.sin(a) * rr]); } };
+  if (shape === 'hex') ring(6, 0);
+  else if (shape === 'oct') ring(8, Math.PI / 8);
+  else if (shape === 'diamond') ring(4, 0);
+  else if (shape === 'square') ring(4, Math.PI / 4, R * 1.2);
+  else if (shape === 'rect') { P.push([-R * 1.15, -R * 0.62], [R * 1.15, -R * 0.62], [R * 1.15, R * 0.62], [-R * 1.15, R * 0.62]); }
+  return P;
+}
+// Prisma mit sichtbaren Vorderwänden und Deckfläche, Fuß bei (0,0)
+function prism(g, pts, H, wall, top, accent) {
+  const n = pts.length;
+  for (let i = 0; i < n; i++) {
+    const a = pts[i], b = pts[(i + 1) % n];
+    const nx = b[1] - a[1], ny = -(b[0] - a[0]);       // Außennormale (Punkte im Uhrzeigersinn)
+    if (ny <= 0.01) continue;                          // Rückseite
+    const lit = 0.5 - nx / (Math.hypot(nx, ny) || 1) * 0.35;
+    g.fillStyle = mix(wall, lit > 0.5 ? '#ffffff' : '#000000', Math.abs(lit - 0.5) * 0.9);
+    g.beginPath(); g.moveTo(a[0], a[1] * TILT); g.lineTo(b[0], b[1] * TILT); g.lineTo(b[0], b[1] * TILT - H); g.lineTo(a[0], a[1] * TILT - H); g.closePath(); g.fill();
+    g.strokeStyle = 'rgba(0,0,0,0.35)'; g.lineWidth = 0.8; g.stroke();
+    if (accent) { g.strokeStyle = rgba(accent, 0.9); g.lineWidth = 1.4; g.beginPath(); g.moveTo(a[0], a[1] * TILT - H * 0.62); g.lineTo(b[0], b[1] * TILT - H * 0.62); g.stroke(); }
+  }
+  const gr = g.createLinearGradient(-30, -H - 30, 30, -H + 20);
+  gr.addColorStop(0, mix(top, '#ffffff', 0.25)); gr.addColorStop(1, mix(top, '#000000', 0.35));
+  g.fillStyle = gr; g.beginPath(); pts.forEach(([x, y], i) => i ? g.lineTo(x, y * TILT - H) : g.moveTo(x, y * TILT - H)); g.closePath(); g.fill();
+  g.strokeStyle = 'rgba(255,255,255,0.18)'; g.lineWidth = 1; g.stroke();
+}
+function cylinder(g, R, H, wall, top, accent, y0 = 0) {
+  const ry = R * TILT;
+  const gr = g.createLinearGradient(-R, 0, R, 0);
+  gr.addColorStop(0, mix(wall, '#ffffff', 0.28)); gr.addColorStop(0.45, wall); gr.addColorStop(1, mix(wall, '#000000', 0.55));
+  g.fillStyle = gr;
+  g.beginPath(); g.moveTo(-R, y0 - H); g.lineTo(-R, y0); g.ellipse(0, y0, R, ry, 0, Math.PI, 0, true); g.lineTo(R, y0 - H); g.closePath(); g.fill();
+  if (accent) { g.strokeStyle = rgba(accent, 0.9); g.lineWidth = 1.5; g.beginPath(); g.ellipse(0, y0 - H * 0.55, R, ry, 0, 0, Math.PI); g.stroke(); }
+  const tg = g.createLinearGradient(-R, y0 - H - ry, R, y0 - H + ry);
+  tg.addColorStop(0, mix(top, '#ffffff', 0.25)); tg.addColorStop(1, mix(top, '#000000', 0.35));
+  g.fillStyle = tg; g.beginPath(); g.ellipse(0, y0 - H, R, ry, 0, 0, 7); g.fill();
+  g.strokeStyle = 'rgba(255,255,255,0.18)'; g.lineWidth = 1; g.stroke();
+}
+export function towerDims(type, tier) {
+  const L = TOWER_LOOK[type], lvl = tier === '1' ? 1 : tier === '2' ? 2 : 3;
+  return { R: L.R + (lvl - 1) * 1.6, H: L.H + (lvl - 1) * 5, lvl };
+}
+
+// Gebäude-Sprite: Anker (ax, ay) = Fußpunkt
+export function towerBodySprite(type, tier, res) {
+  const key = 'tbody|' + type + '|' + tier + '|' + res;
+  let s = spriteCache.get(key);
+  if (s) return s;
+  const { R, H, lvl } = towerDims(type, tier);
+  const L = TOWER_LOOK[type];
+  const col = tierColor(type, tier);
+  const w = R * 2.6 + 36, h = R * TILT * 2 + H + 40, ax = w / 2, ay = R * TILT + H + 26;
+  const c = mk(w * res, h * res), g = c.getContext('2d');
+  g.scale(res, res); g.translate(ax, ay);
+  // Schatten nach hinten rechts
+  g.fillStyle = 'rgba(0,0,0,0.38)';
+  g.beginPath(); g.ellipse(R * 0.35 + H * 0.25, -R * 0.1 * TILT, R * 1.15 + H * 0.2, R * TILT * 0.9, 0, 0, 7); g.fill();
+  // Bodenplatte
+  const pr = R + 7;
+  g.fillStyle = 'rgba(0,0,0,0.3)'; g.beginPath(); g.ellipse(2, 3, pr, pr * TILT, 0, 0, 7); g.fill();
+  g.fillStyle = shade(g, -pr, -pr * TILT, pr, pr * TILT, '#3a414c', 0.5);
+  poly2(g, 8, pr, Math.PI / 8); g.fill();
+  g.strokeStyle = 'rgba(255,255,255,0.1)'; g.lineWidth = 1; g.stroke();
+  g.fillStyle = '#c9a227'; for (const [x, y] of [[-pr * 0.7, pr * 0.55], [pr * 0.7, pr * 0.55]]) { g.fillRect(x - 3, y * TILT - 1, 6, 2); }
+  const wall = L.wall, top = mix(L.wall, '#6a7688', 0.55);
+  if (L.shape === 'round') {
+    cylinder(g, R, H, wall, top, col);
+    if (lvl >= 2) for (let i = -1; i <= 1; i += 2) { g.fillStyle = shade(g, i * R - 3, -H, i * R + 3, 0, '#59647a'); g.fillRect(i * R * 0.98 - 2.5, -H * 0.85, 5, H * 0.7); }
+  } else if (L.shape === 'tiers') {
+    const h1 = H * 0.45, h2 = H * 0.32, h3 = H * 0.23;
+    cylinder(g, R, h1, wall, top, col);
+    cylinder(g, R * 0.78, h2, wall, top, null, -h1);
+    cylinder(g, R * 0.56, h3, wall, top, col, -h1 - h2);
+  } else if (L.shape === 'mast') {
+    cylinder(g, R, 8, wall, top, col);
+    const pw = 3 + lvl;
+    const gr = g.createLinearGradient(-pw, 0, pw, 0); gr.addColorStop(0, '#7d889a'); gr.addColorStop(1, '#2a3038');
+    g.fillStyle = gr; g.fillRect(-pw, -H, pw * 2, H - 6);
+    g.strokeStyle = 'rgba(0,0,0,0.4)'; g.lineWidth = 1;
+    for (let y = -H + 6; y < -10; y += 7) { g.beginPath(); g.moveTo(-pw - 3, y); g.lineTo(pw + 3, y + 5); g.moveTo(pw + 3, y); g.lineTo(-pw - 3, y + 5); g.stroke(); }
+    cylinder(g, R * 0.95, 3, wall, top, col, -H + 3);
+  } else {
+    const pts = footprint(L.shape, R);
+    prism(g, pts, H, wall, top, col);
+    if (lvl >= 2) { // Panzerplatten an der Front
+      g.fillStyle = shade(g, -R * 0.4, -H, R * 0.4, 0, '#5a6478');
+      g.fillRect(-R * 0.35, R * 0.55 * TILT - H * 0.8, R * 0.7, H * 0.35);
+    }
+  }
+  // Fenster / Lichtschlitze
+  g.fillStyle = rgba(col, 0.85);
+  const fy = L.shape === 'mast' ? -4 : -H * 0.3;
+  for (let i = -1; i <= 1; i++) g.fillRect(i * R * 0.35 - 1.5, R * 0.62 * TILT + fy, 3, 2);
+  // Stufe 3: Antennen
+  if (lvl >= 3) {
+    g.strokeStyle = '#9aa5b6'; g.lineWidth = 1.2;
+    for (const sx of [-R * 0.7, R * 0.7]) { g.beginPath(); g.moveTo(sx, -H - R * 0.3 * TILT); g.lineTo(sx, -H - R * 0.3 * TILT - 12); g.stroke(); }
+  }
+  s = { c, w, h, ax, ay, top: H };
+  spriteCache.set(key, s);
+  return s;
+}
+function poly2(g, n, r, rot) { g.beginPath(); for (let i = 0; i < n; i++) { const a = rot + i / n * Math.PI * 2; g.lineTo(Math.cos(a) * r, Math.sin(a) * r * TILT); } g.closePath(); }
+
+// Hindernisse aufrecht: Fels, Kristall, Pflanze
+export function obstacleSprite(o, B, res) {
+  const key = 'ob|' + Math.round(o.x) + '|' + Math.round(o.y) + '|' + o.kind + '|' + B.name + '|' + res;
+  let s = spriteCache.get(key);
+  if (s) return s;
+  const r = o.r, w = r * 3.4 + 20, h = r * 3.6 + 20, ax = w / 2, ay = h - r * TILT - 8;
+  const c = mk(w * res, h * res), g = c.getContext('2d');
+  g.scale(res, res); g.translate(ax, ay);
+  const rng = (() => { let a = Math.round(o.x * 13 + o.y * 7) >>> 0; return () => { a = (a * 1664525 + 1013904223) >>> 0; return a / 4294967296; }; })();
+  g.fillStyle = 'rgba(0,0,0,0.38)'; g.beginPath(); g.ellipse(r * 0.5, -r * 0.1, r * 1.25, r * TILT * 0.9, 0, 0, 7); g.fill();
+  if (o.kind === 'rock') {
+    const n = 7, pts = [];
+    for (let i = 0; i < n; i++) { const a = o.rot + i / n * Math.PI * 2, rr = r * (0.75 + rng() * 0.3); pts.push([Math.cos(a) * rr, Math.sin(a) * rr]); }
+    prism(g, pts, r * 0.75, B.rock, mix(B.rock, '#ffffff', 0.15), null);
+  } else if (o.kind === 'crystal') {
+    const gl = g.createRadialGradient(0, -r * 0.6, 0, 0, -r * 0.6, r * 1.6);
+    gl.addColorStop(0, rgba(B.crystal, 0.35)); gl.addColorStop(1, rgba(B.crystal, 0));
+    g.fillStyle = gl; g.beginPath(); g.arc(0, -r * 0.6, r * 1.6, 0, 7); g.fill();
+    const n = 4 + Math.floor(rng() * 3);
+    const shards = [];
+    for (let i = 0; i < n; i++) shards.push({ x: (rng() - 0.5) * r * 1.2, y: (rng() - 0.5) * r * 0.8, len: r * (1 + rng() * 1.3), w: r * (0.2 + rng() * 0.16), lean: (rng() - 0.5) * 0.7 });
+    shards.sort((a, b) => a.y - b.y);
+    for (const sh of shards) {
+      g.save(); g.translate(sh.x, sh.y * TILT); g.rotate(sh.lean);
+      const gr = g.createLinearGradient(-sh.w, 0, sh.w, 0);
+      gr.addColorStop(0, mix(B.crystal, '#ffffff', 0.55)); gr.addColorStop(0.5, B.crystal); gr.addColorStop(1, mix(B.crystal, '#000000', 0.5));
+      g.fillStyle = gr;
+      g.beginPath(); g.moveTo(-sh.w, 0); g.lineTo(-sh.w * 0.8, -sh.len * 0.8); g.lineTo(0, -sh.len); g.lineTo(sh.w * 0.8, -sh.len * 0.8); g.lineTo(sh.w, 0); g.closePath(); g.fill();
+      g.strokeStyle = 'rgba(255,255,255,0.35)'; g.lineWidth = 0.8; g.beginPath(); g.moveTo(0, -sh.len); g.lineTo(0, 0); g.stroke();
+      g.restore();
+    }
+  } else {
+    // fremde Pflanze: Stiel + Kugelkrone
+    g.fillStyle = mix(B.plant, '#000000', 0.5); g.fillRect(-r * 0.12, -r * 0.9, r * 0.24, r * 0.9);
+    const blobs = [];
+    for (let i = 0; i < 6; i++) { const a = rng() * 6.28, d = rng() * r * 0.5; blobs.push([Math.cos(a) * d, -r * 1.05 + Math.sin(a) * d * 0.7, r * (0.42 + rng() * 0.3)]); }
+    blobs.sort((a, b) => a[1] - b[1]);
+    for (const [x, y, rr] of blobs) {
+      const gr = g.createRadialGradient(x - rr * 0.35, y - rr * 0.45, rr * 0.1, x, y, rr);
+      gr.addColorStop(0, mix(B.plant2, '#ffffff', 0.2)); gr.addColorStop(0.55, B.plant); gr.addColorStop(1, mix(B.plant, '#000000', 0.55));
+      g.fillStyle = gr; g.beginPath(); g.arc(x, y, rr, 0, 7); g.fill();
+    }
+    for (let i = 0; i < 6; i++) { g.fillStyle = rgba(B.plant2, 0.85); g.beginPath(); g.arc((rng() - 0.5) * r * 1.2, -r * 1.05 + (rng() - 0.5) * r * 0.8, 1.2 + rng() * 1.2, 0, 7); g.fill(); }
+  }
+  s = { c, w, h, ax, ay };
+  spriteCache.set(key, s);
+  return s;
 }

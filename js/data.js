@@ -5,8 +5,11 @@ export const COLS = 18;
 export const ROWS = 10;
 export const WORLD_W = COLS * TILE;
 export const WORLD_H = ROWS * TILE;
+// Neigung der Kamera: Boden wird gestaucht, Gebäude stehen aufrecht (leichte Seitenansicht)
+export const TILT = 0.78;
 
 export const GAME_TITLE = 'KERNWACHT';
+export const VERSION = '1.0.3';
 
 // ---------------------------------------------------------------- Türme
 // Stufe '1' → '2' → Variante 'a' | 'b' | ('c' per Forschung). Werte vererben sich.
@@ -106,6 +109,32 @@ export const TOWERS = {
   },
 };
 export const TOWER_ORDER = ['laser', 'plasma', 'rail', 'emp', 'rocket', 'tesla', 'drone', 'shield', 'radar'];
+// Bauform: Grundriss, Radius, Höhe (Weltpixel), Kopfhöhe
+export const TOWER_LOOK = {
+  laser:  { shape: 'hex',     R: 20.7, H: 24, wall: '#2e3a4a' },
+  plasma: { shape: 'round',   R: 25.6, H: 14, wall: '#3a3330' },
+  rail:   { shape: 'rect',    R: 24.4, H: 12,  wall: '#33373f' },
+  emp:    { shape: 'tiers',   R: 23.2, H: 22, wall: '#2c2c48' },
+  rocket: { shape: 'square',  R: 22.0, H: 19, wall: '#383a2c' },
+  tesla:  { shape: 'round',   R: 15.9, H: 40, wall: '#3a2f2a' },
+  drone:  { shape: 'oct',     R: 26.8, H: 11,  wall: '#2b3a34' },
+  shield: { shape: 'diamond', R: 19.5, H: 32, wall: '#2a3450' },
+  radar:  { shape: 'mast',    R: 13.4, H: 49, wall: '#2c3a38' },
+};
+// Kombi-Effekte: Turm A in der Nähe von Turm B (Abstand in Feldern)
+export const COMBOS = [
+  { id: 'netz', a: 'tesla', b: 'emp', name: 'Überladungsnetz', desc: 'Bogenspule neben EMP-Turm: Blitze springen 2 Ziele weiter.' },
+  { id: 'ziel', a: 'rail', b: 'radar', name: 'Zielerfassung', desc: 'Schienenkanone neben Radarmast: 15 % mehr Schaden.' },
+  { id: 'brand', a: 'plasma', b: 'rocket', name: 'Brandteppich', desc: 'Plasmawerfer neben Raketenwerfer: 25 % größere Explosionen.' },
+  { id: 'relais', a: 'drone', b: 'shield', name: 'Drohnenrelais', desc: 'Drohnenhangar neben Schildgenerator: eine Drohne mehr.' },
+];
+export const COMBO_RANGE = 2.2;
+// Erfahrung der Türme
+export const VET_RANKS = [
+  { kills: 25, name: 'Veteran', dmg: 0.05, range: 0 },
+  { kills: 75, name: 'Elite', dmg: 0.1, range: 0 },
+  { kills: 200, name: 'Legende', dmg: 0.15, range: 0.05 },
+];
 export const TOWER_HP = 100;
 
 export function towerSpec(type, tier) {
@@ -129,7 +158,20 @@ export const ENEMIES = {
   flyer:    { name: 'Gleiter', hp: 65, speed: 58, armor: 0, reward: 9, dmg: 2, r: 13, color: '#ffe14d', cost: 3, spacing: 0.9, air: true, desc: 'Fliegt direkt zum Kern.' },
   splitter: { name: 'Teiler', hp: 140, speed: 42, armor: 0, reward: 10, dmg: 2, r: 16, color: '#ff4fa0', cost: 5, spacing: 1.2, split: { type: 'mite', n: 3 }, desc: 'Zerfällt in kleine Splitterlinge.' },
   mite:     { name: 'Splitterling', hp: 26, speed: 86, armor: 0, reward: 2, dmg: 1, r: 7, color: '#ff8cc6', cost: 1, spacing: 0.3 },
-  boss:     { name: 'Schwarmträger', hp: 2000, shield: 400, speed: 20, armor: 3, reward: 250, dmg: 30, r: 36, color: '#ff3d6e', cost: 60, spacing: 8, boss: true, spawn: { type: 'swarm', cd: 4.5, n: 3 }, shoot: { dmg: 14, cd: 4.5, range: 2.8, charge: 1.1 }, desc: 'Riesiges Mutterschiff alle 10 Wellen. EMP zerstört sein Schild.' },
+  boss:     { name: 'Schwarmträger', hp: 2000, shield: 400, speed: 20, armor: 3, reward: 250, dmg: 30, r: 36, color: '#ff3d6e', cost: 60, spacing: 8, boss: true, spawn: { type: 'swarm', cd: 4.5, n: 3 }, shoot: { dmg: 14, cd: 4.5, range: 2.8, charge: 1.1 }, desc: 'Riesiges Mutterschiff. EMP zerstört sein Schild.' },
+  boss2:    { name: 'Maschinenkoloss', hp: 2600, shield: 0, speed: 17, armor: 6, reward: 300, dmg: 35, r: 34, color: '#ffb02e', cost: 60, spacing: 8, boss: true, jam: { cd: 7, range: 2.6, dur: 3 }, desc: 'Schwerer Kampfläufer. Sein Störimpuls legt Türme in der Nähe kurz lahm.' },
+};
+// Tipps für das Gegner-Lexikon
+export const ENEMY_TIPS = {
+  swarm: { strong: 'Kommen in großer Zahl.', weak: 'Flächenschaden: Plasmawerfer, Bogenspule.' },
+  tank: { strong: 'Dicke Panzerung, beschießt Türme.', weak: 'Starke Einzeltreffer: Schienenkanone, Plasma. EMP-Überlast schwächt die Panzerung.' },
+  shield: { strong: 'Energieschild schluckt Schaden.', weak: 'EMP-Turm zerstört Schilde sofort.' },
+  phantom: { strong: 'Unsichtbar für Türme.', weak: 'Radarmast in der Nähe des Weges.' },
+  flyer: { strong: 'Fliegt direkt zum Kern, ignoriert den Weg.', weak: 'Raketenwerfer (doppelter Schaden), Laser, Drohnen.' },
+  splitter: { strong: 'Zerfällt in mehrere Splitterlinge.', weak: 'Flächenschaden am Ende des Weges.' },
+  mite: { strong: 'Sehr schnell.', weak: 'Bogenspule und Laser.' },
+  boss: { strong: 'Riesig, setzt Schwärmer ab, beschießt Türme.', weak: 'EMP gegen das Schild, Orbitalschlag, Zeitverzerrung.' },
+  boss2: { strong: 'Sehr zäh, legt Türme mit Störimpulsen lahm.', weak: 'Türme mit großer Reichweite weit vom Weg, Schienenkanone, Orbitalschlag.' },
 };
 export const ENEMY_UNLOCK = { swarm: 1, tank: 3, flyer: 4, shield: 5, splitter: 6, phantom: 7 };
 export const ELITE_INFO = {
@@ -290,6 +332,26 @@ export const MAPS = [
     water: [{ pts: [[5.9, 4.7], [8, 5.4], [10.3, 4.8]], w: 1.6 }],
     obstacles: [[1.2, 2.2, 0.7, 'tree'], [1.4, 8, 0.7, 'tree'], [15.6, 1.6, 0.6, 'tree'], [15.4, 8.4, 0.65, 'tree']],
   },
+];
+
+// ---------------------------------------------------------------- Kampagne
+export const CAMPAIGN = [
+  { id: 'm1', name: 'Erstkontakt', map: 'krater', mode: 'standard', difficulty: 'leicht', waves: 8,
+    goal: 'Halte 8 Wellen durch.', radio: { 0: 'Leitstelle Aurelis an Kommandant: Unbekannte Lebensformen im Kraterpass. Bauen Sie Abwehrstellungen am Weg!', 4: 'Gute Arbeit. Die Belagerer sind gepanzert – setzen Sie auf starke Einzeltreffer.', end: 'Kraterpass gesichert. Willkommen an Bord, Kommandant.' } },
+  { id: 'm2', name: 'Funkstille', map: 'zwilling', mode: 'standard', difficulty: 'leicht', waves: 10, allowed: ['laser', 'plasma', 'rail', 'radar'],
+    goal: 'Nur Laser, Plasma, Schienenkanone und Radar sind verfügbar.', radio: { 0: 'Unser Nachschub ist abgeschnitten. Wir haben nur noch vier Turmarten auf Lager.', 7: 'Phantome auf dem Radar! Halten Sie einen Radarmast bereit.', end: 'Die Schlucht ist ruhig. Nachschub ist unterwegs.' } },
+  { id: 'm3', name: 'Unsichtbare Gefahr', map: 'spirale', mode: 'standard', difficulty: 'mittel', waves: 12,
+    goal: 'Halte 12 Wellen im Kristallfeld.', radio: { 0: 'Im Kristallfeld bewegt sich etwas Getarntes. Die Nacht macht es nicht leichter.', 7: 'Phantome im Anflug – Radar einschalten!', end: 'Kristallfeld gesichert. Ausgezeichnet.' } },
+  { id: 'm4', name: 'Ohne Netz', map: 'gabel', mode: 'standard', difficulty: 'mittel', waves: 12, banned: ['shield'],
+    goal: 'Keine Schildgeneratoren – schütze deine Türme anders.', radio: { 0: 'Die Schildgeneratoren sind ausgefallen. Die Giftgabelung muss trotzdem halten.', 6: 'Teiler gesichtet. Viel Flächenschaden am Ende des Weges hilft.', end: 'Die Gabelung hält. Die Techniker reparieren die Schilde.' } },
+  { id: 'm5', name: 'Kältefront', map: 'zwilling', mode: 'expert', difficulty: 'mittel', waves: 15, eventEvery: 3,
+    goal: 'Advance-Regeln mit vielen Karten-Ereignissen.', radio: { 0: 'Ein Sturmsystem zieht über die Frostebene. Ihr Kommandant ist vor Ort.', 5: 'Ereignis-Warnung! Achten Sie auf die Ankündigungen.', end: 'Die Front ist durchgezogen. Hervorragend.' } },
+  { id: 'm6', name: 'Der Schwarmträger', map: 'krater', mode: 'standard', difficulty: 'mittel', waves: 10,
+    goal: 'Besiege das erste Mutterschiff in Welle 10.', radio: { 0: 'Fernsensoren melden ein riesiges Mutterschiff. Bereiten Sie sich vor.', 9: 'Da ist es! EMP gegen sein Schild, dann alles auf den Rumpf!', end: 'Das Mutterschiff ist vernichtet. Die Station feiert Sie.' } },
+  { id: 'm7', name: 'Maschinenherz', map: 'spirale', mode: 'expert', difficulty: 'mittel', waves: 10, finalBoss: 'boss2',
+    goal: 'Stoppe den Maschinenkoloss.', radio: { 0: 'Ein Kampfläufer der Maschinenwesen marschiert auf den Kern zu.', 9: 'Der Koloss stört unsere Türme! Bauen Sie mit Abstand zum Weg.', end: 'Der Koloss ist gefallen. Unglaublich.' } },
+  { id: 'm8', name: 'Letzte Bastion', map: 'gabel', mode: 'expert', difficulty: 'schwer', waves: 20,
+    goal: 'Überstehe 20 Wellen auf Schwer.', radio: { 0: 'Alle Schwärme ziehen zusammen. Das ist die Entscheidung, Kommandant.', 10: 'Halbzeit. Halten Sie durch!', 19: 'Letzte Welle – alles, was wir haben!', end: 'Aurelis ist gerettet. Die Kolonie verdankt Ihnen alles.' } },
 ];
 
 export const CUSTOM_THEME = { ground: '#10141c', ground2: '#18202c', accent: '#ffd23e', lane: '#ffe48a' };

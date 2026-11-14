@@ -1,7 +1,7 @@
 // Oberfläche: HUD, Panels, Menüs, Eingabe
 import {
   TILE, COLS, ROWS, WORLD_W, WORLD_H, TOWERS, TOWER_ORDER, towerSpec, tierLevel, ENEMIES, ELITE_INFO, BASE, BASE_UPGRADES,
-  BASE_UPGRADE_ORDER, ABILITIES, ABILITY_ORDER, HERO, heroXpNeed, RESEARCH, RESEARCH_BRANCHES, ACHIEVEMENTS, DAILY_MODS, MAPS, CUSTOM_THEME, GAME_TITLE, BIOMES,
+  BASE_UPGRADE_ORDER, ABILITIES, ABILITY_ORDER, HERO, heroXpNeed, RESEARCH, RESEARCH_BRANCHES, ACHIEVEMENTS, DAILY_MODS, MAPS, CUSTOM_THEME, GAME_TITLE, BIOMES, ENEMY_TIPS, CAMPAIGN, VERSION, COMBOS, VET_RANKS, TILT,
 } from './data.js';
 import { Game, buildMap, normalizeDef } from './game.js';
 import { dailyConfig, makeWave } from './waves.js';
@@ -10,6 +10,8 @@ import { sfx } from './audio.js';
 import { towerIcon, enemyIcon } from './sprites.js';
 import { drawThumbTerrain } from './terrain.js';
 import { DIFFICULTIES, DIFF_ORDER } from './waves.js';
+import { submitScore, fetchScores, localScores } from './rank.js';
+import { towerDims } from './sprites.js';
 import { fmt, fmtTime, todayKey, el, clamp, rgba } from './util.js';
 
 const svg = (p, extra = '') => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" ${extra}>${p}</svg>`;
@@ -27,7 +29,17 @@ export const ICON = {
   grenade: svg('<path d="M12 2l2 6 6-2-4 5 5 3-6 1 1 6-4-5-4 5 1-6-6-1 5-3-4-5 6 2z"/>'),
   overdrive: svg('<path d="M13 2L5 14h6l-1 8 8-12h-6z"/>'),
   close: svg('<path d="M6 6l12 12M18 6L6 18"/>'),
+  ranges: svg('<circle cx="12" cy="12" r="9" stroke-dasharray="3 3"/><circle cx="12" cy="12" r="2.5" fill="currentColor"/>'),
+  full: svg('<path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/>'),
+  zoom: svg('<circle cx="11" cy="11" r="7"/><path d="M8 11h6M16.5 16.5L21 21"/>'),
 };
+export function toggleFullscreen() {
+  const d = document, el = d.documentElement;
+  try {
+    if (!d.fullscreenElement && !d.webkitFullscreenElement) (el.requestFullscreen || el.webkitRequestFullscreen).call(el).catch?.(() => {});
+    else (d.exitFullscreen || d.webkitExitFullscreen).call(d);
+  } catch (e) { /* nicht unterstützt */ }
+}
 const ABIL_ICON = { orbital: ICON.orbital, warp: ICON.warp, repair: ICON.repair, pulse: ICON.pulse };
 
 const TIPS = {
@@ -121,9 +133,11 @@ export class UI {
   playRect() {
     const W = window.innerWidth, H = window.innerHeight;
     if (this.mode === 'game') {
-      const top = this.$('topbar').getBoundingClientRect().bottom;
-      const bottom = this.$('bottombar').getBoundingClientRect().top;
-      return { x: 6, y: top + 6, w: W - 12, h: bottom - top - 12 };
+      const top = this.$('topbar').getBoundingClientRect().top + this.$('topbar').offsetHeight - 14;
+      const bottom = this.$('bottombar').getBoundingClientRect().top + 14;
+      const dock = this.$('leftdock').getBoundingClientRect();
+      const left = dock.width ? dock.right + 8 : 6;
+      return { x: left, y: top + 2, w: W - left - Math.min(left, 30), h: bottom - top - 4 };
     }
     if (this.mode === 'editor') {
       const tool = document.querySelector('#scrEditor .etool');
@@ -138,21 +152,31 @@ export class UI {
   buildHud() {
     this.$('btnMenu').innerHTML = ICON.menu;
     this.$('btnPause').innerHTML = ICON.pause;
+    this.$('btnRanges').innerHTML = ICON.ranges;
+    this.$('btnFull').innerHTML = ICON.full;
+    this.$('btnZoom').innerHTML = ICON.zoom;
     this.$('btnMenu').onclick = () => { sfx.play('click'); this.openPause(); };
     this.$('btnPause').onclick = () => { sfx.play('click'); this.togglePause(); };
+    this.$('btnRanges').onclick = () => { sfx.play('click'); this.toggleRanges(); };
+    this.$('btnFull').onclick = () => { sfx.play('click'); toggleFullscreen(); };
+    this.$('btnZoom').onclick = () => { sfx.play('click'); this.r.resetView(); this.placePanel(); };
     this.$('speedSeg').querySelectorAll('button').forEach(b => { b.onclick = () => { sfx.play('click'); this.setSpeed(+b.dataset.s); }; });
     this.$('btnMute').onclick = () => { this.toggleMute(); };
     this.$('btnNext').onclick = () => { sfx.init(); if (this.game && this.game.callNextWave()) { this.paused = false; } else sfx.play('error'); };
+    this.$('undoChip').onclick = () => this.undoBuild();
     this.updateMuteIcon();
     const bb = this.$('buildbar');
     this.towerBtns = {};
     for (const type of TOWER_ORDER) {
       const T = TOWERS[type];
       const b = el('button', 'tb', `<span class="key">${T.key}</span><img alt="" src="${towerIcon(type)}"><span class="cost">${T.tiers[1].cost}</span>`);
-      b.title = `${T.name} (${T.key}) – ${T.desc}`;
+      b._tip = () => {
+        const sp = towerSpec(type, '1');
+        const lines = statLines(sp, this.game, null).slice(0, 4).map(([k, v]) => `<span>${k}</span> <b>${v}</b>`).join(' &nbsp; ');
+        const banned = this.game && this.game.rules.banned.includes(type);
+        return `<h5>${T.name} <kbd>${T.key}</kbd></h5><p>${T.desc}${banned ? ' <b style="color:#fca5a5">Hier gesperrt.</b>' : ''}</p><div class="tm"><span>Kosten</span><b style="color:var(--gold)">${T.tiers[1].cost}</b></div><div class="tm" style="flex-wrap:wrap">${lines}</div>`;
+      };
       b.onclick = () => { sfx.init(); this.chooseBuild(type); };
-      b.onpointerenter = (e) => { if (e.pointerType === 'mouse') this.showBuildInfo(type); };
-      b.onpointerleave = (e) => { if (e.pointerType === 'mouse' && this.buildType !== type) this.showBuildInfo(this.buildType); };
       bb.appendChild(b);
       this.towerBtns[type] = b;
     }
@@ -162,25 +186,99 @@ export class UI {
       const A = ABILITIES[id];
       const b = el('button', 'ab', `${ABIL_ICON[id]}<span class="key">${A.key}</span><span class="en"></span><div class="cdov"></div><div class="cdt"></div>`);
       b.style.setProperty('--c', A.color);
-      b.title = `${A.name} (${A.key}) – ${A.desc}`;
+      b._tip = () => {
+        const info = this.game ? this.game.abilityInfo(id) : { energy: A.energy, cd: A.cd };
+        return `<h5>${A.name} <kbd>${A.key}</kbd></h5><p>${A.desc}</p><div class="tm"><span>Energie</span><b style="color:var(--violet)">${info.energy}</b><span>Abklingzeit</span><b>${Math.round(info.cd)} s</b></div>${info.locked && !info.hidden ? '<p style="color:#fca5a5;margin-top:4px">Erst im Kern-Ausbau freischalten.</p>' : ''}`;
+      };
       b.onclick = () => { sfx.init(); this.ability(id); };
       lb.appendChild(b);
       this.abilBtns[id] = b;
     }
     this.heroBox = el('div', 'herobox', '');
     this.heroBtn = el('button', 'hero-btn', `${ICON.hero}<span class="lv">1</span><div class="hpb"><div></div></div><div class="resp"></div>`);
-    this.heroBtn.title = 'Kommandant auswählen (H)';
+    this.heroBtn._tip = () => { const h = this.game?.hero; return `<h5>Kommandant <kbd>H</kbd></h5><p>Antippen, dann auf die Karte tippen, um ihn zu bewegen. Kämpft mit und steigt im Level auf.</p>${h ? `<div class="tm"><span>Stufe</span><b>${h.level}</b><span>Leben</span><b>${Math.ceil(h.hp)}/${h.maxHp}</b></div>` : ''}`; };
     this.heroBtn.onclick = () => { sfx.init(); this.toggleHero(); };
     this.heroBox.appendChild(this.heroBtn);
     this.heroAbBtns = HERO.abilities.map((a, i) => {
       const b = el('button', 'ab', `${i === 0 ? ICON.grenade : ICON.overdrive}<span class="key">${a.key}</span><div class="cdov"></div><div class="cdt"></div>`);
       b.style.setProperty('--c', i === 0 ? '#5dffb0' : '#ffcf3a');
-      b.title = `${a.name} (${a.key}) – ${a.desc}`;
+      b._tip = () => `<h5>${a.name} <kbd>${a.key}</kbd></h5><p>${a.desc}</p><div class="tm"><span>Abklingzeit</span><b>${a.cd} s</b></div>`;
       b.onclick = () => { sfx.init(); if (this.game) this.game.heroAbility(i); };
       this.heroBox.appendChild(b);
       return b;
     });
-    lb.appendChild(this.heroBox);
+    this.$('herobar').appendChild(this.heroBox);
+    this.bindTooltips();
+  }
+
+  // Spiel-Kärtchen statt Browser-Hinweis
+  bindTooltips() {
+    const tt = this.$('tooltip');
+    let cur = null;
+    const show = (elm) => {
+      const html = elm._tip ? elm._tip() : (() => { const [t, d, k] = elm.dataset.tip.split('|'); return `<h5>${t}${k ? ` <kbd>${k}</kbd>` : ''}</h5><p>${d || ''}</p>`; })();
+      if (!html) return;
+      tt.innerHTML = html; tt.classList.remove('hidden');
+      const r = elm.getBoundingClientRect(), w = tt.offsetWidth, h = tt.offsetHeight;
+      let x = r.left + r.width / 2 - w / 2, y = r.top - h - 10;
+      if (r.left < 120) { x = r.right + 12; y = r.top + r.height / 2 - h / 2; }
+      if (y < 6) y = r.bottom + 10;
+      tt.style.left = Math.round(Math.max(6, Math.min(window.innerWidth - w - 6, x))) + 'px';
+      tt.style.top = Math.round(Math.max(6, Math.min(window.innerHeight - h - 6, y))) + 'px';
+    };
+    document.addEventListener('pointerover', (e) => {
+      if (e.pointerType !== 'mouse') return;
+      const elm = e.target.closest && e.target.closest('[data-tip], .tb, .ab, .hero-btn, .pv');
+      if (!elm || (!elm._tip && !elm.dataset.tip)) { if (cur) { cur = null; tt.classList.add('hidden'); } return; }
+      if (elm === cur) return;
+      cur = elm; show(elm);
+    });
+    document.addEventListener('pointerdown', () => { cur = null; tt.classList.add('hidden'); });
+  }
+  toggleRanges() { this.showRanges = !this.showRanges; this.$('btnRanges').classList.toggle('on', this.showRanges); }
+  undoBuild() {
+    const g = this.game, t = this.lastBuilt;
+    this.$('undoChip').classList.add('hidden');
+    if (!g || !t || !g.towers.includes(t) || t.hasFired) { this.toast('Rückgängig nicht mehr möglich'); return; }
+    g.sell(t); if (this.selected?.tower === t) this.select(null);
+    this.lastBuilt = null;
+  }
+  noteBuilt(t) {
+    if (!t) return;
+    this.lastBuilt = t;
+    const c = this.$('undoChip');
+    c.innerHTML = `Rückgängig: ${t.spec.tierName} <b style="color:var(--gold)">+${t.spent}</b>`;
+    c.classList.remove('hidden');
+    clearTimeout(this._undoT);
+    this._undoT = setTimeout(() => c.classList.add('hidden'), 5000);
+  }
+  // Wie viel Weg deckt ein Turm an dieser Stelle ab?
+  coverageAt(x, y, type) {
+    const g = this.game; if (!g) return 0;
+    const m = g.map;
+    if (!m.samples) { m.samples = []; for (const p of m.smooth) for (let i = 1; i < p.length; i++) { const a = p[i - 1], b = p[i], n = Math.max(1, Math.round(Math.hypot(b.x - a.x, b.y - a.y) / 8)); for (let k = 0; k < n; k++) m.samples.push(a.x + (b.x - a.x) * k / n, a.y + (b.y - a.y) * k / n); } }
+    const sp = TOWERS[type].tiers[1];
+    if (!sp.range || sp.kind === 'shieldgen') return undefined;
+    const R2 = (sp.range * TILE) ** 2; let n = 0;
+    for (let i = 0; i < m.samples.length; i += 2) if ((m.samples[i] - x) ** 2 + (m.samples[i + 1] - y) ** 2 <= R2) n++;
+    return n * 8 / TILE;
+  }
+  setGhost(w) {
+    this.ghost = w ? { ...w } : null;
+    this.coverage = w && this.buildType ? this.coverageAt(w.x, w.y, this.buildType) : undefined;
+  }
+  // Turm unter dem Zeiger finden (Gebäude stehen aufrecht)
+  pickTower(sx, sy) {
+    const g = this.game; if (!g) return null;
+    let best = null, by = -Infinity;
+    for (const t of g.towers) {
+      const { R, H } = towerDims(t.type, t.tier);
+      const f = this.r.worldToScreen(t.x, t.y), s = this.r.scale;
+      if (Math.abs(sx - f.x) > (R + 6) * s) continue;
+      if (sy > f.y + (R * 0.8 + 4) * s || sy < f.y - (H + 22) * s) continue;
+      if (f.y > by) { by = f.y; best = t; }
+    }
+    return best;
   }
 
   updateMuteIcon() { this.$('btnMute').innerHTML = this.settings.muted ? ICON.mute : ICON.sound; }
@@ -205,7 +303,8 @@ export class UI {
     if (this.pendingPos) {
       const p = this.pendingPos; this.pendingPos = null;
       const t = g.build(type, p.x, p.y);
-      this.buildType = null; this.ghost = null;
+      this.noteBuilt(t);
+      this.buildType = null; this.setGhost(null);
       if (t) this.select({ kind: 'tower', tower: t });
       this.refreshBuildSel();
       return;
@@ -277,8 +376,9 @@ export class UI {
     const p = this.$('panel'), sel = this.selected, g = this.game;
     if (!sel || !g || p.classList.contains('hidden')) return;
     const wx = sel.kind === 'tower' ? sel.tower.x : g.base.x, wy = sel.kind === 'tower' ? sel.tower.y : g.base.y;
-    const s = this.r.worldToScreen(wx, wy);
-    const off = (sel.kind === 'tower' ? 30 : 76) * this.r.scale + 12;
+    const zh = sel.kind === 'tower' ? towerDims(sel.tower.type, sel.tower.tier).H * 0.6 : 30;
+    const s = this.r.worldToScreen(wx, wy, zh);
+    const off = (sel.kind === 'tower' ? 26 : 70) * this.r.scale + 12;
     const pw = p.offsetWidth, ph = p.offsetHeight;
     const top0 = this.$('topbar').getBoundingClientRect().bottom + 6, bot0 = this.$('bottombar').getBoundingClientRect().top - 6;
     let left = s.x + off, side = 'side-r';
@@ -301,6 +401,11 @@ export class UI {
     const st = el('div', 'stats');
     st.innerHTML = this.towerStatsHtml(t);
     p.appendChild(st);
+    const extra = [];
+    if (t.vet) extra.push(`<span style="color:var(--gold)">${'★'.repeat(t.vet)} ${VET_RANKS[t.vet - 1].name}</span> (+${Math.round(VET_RANKS[t.vet - 1].dmg * 100)} % Schaden)`);
+    else { const nx = VET_RANKS[0]; extra.push(`<span style="color:var(--dim)">Veteran ab ${nx.kills} Abschüssen</span>`); }
+    for (const c of t.combos || []) { const C = COMBOS.find(x => x.id === c.id); extra.push(`<span style="color:var(--gold)">Kombi: ${C.name}</span> – ${C.desc.split(':')[1] || ''}`); }
+    p.appendChild(el('div', 'diffdesc', extra.join('<br>')));
     if (!['shieldgen', 'radar', 'pulse'].includes(sp.kind)) {
       const seg = el('div', 'seg target', '');
       for (const [m, label] of TARGET_MODES) {
@@ -379,32 +484,64 @@ export class UI {
   // ---------------------------------------------------------------- Eingabe
   bindInput() {
     const cv = this.r.canvas;
-    let down = null;
+    const pts = new Map();
+    let down = null, pinch = null;
     cv.addEventListener('pointerdown', (e) => {
       sfx.init();
-      down = { x: e.clientX, y: e.clientY, t: performance.now(), id: e.pointerId, type: e.pointerType };
+      pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
       if (this.mode === 'editor' && this.editor) { this.editor.pointer('down', e); return; }
       if (this.mode !== 'game') return;
+      if (pts.size === 2) {
+        const [a, b] = [...pts.values()];
+        pinch = { d: Math.hypot(a.x - b.x, a.y - b.y), mx: (a.x + b.x) / 2, my: (a.y + b.y) / 2 };
+        down = null; return;
+      }
+      down = { x: e.clientX, y: e.clientY, lx: e.clientX, ly: e.clientY, t: performance.now(), type: e.pointerType, pan: false, btn: e.button };
       this.updateMouse(e);
-      if (e.pointerType !== 'mouse' && this.buildType) this.ghost = { ...this.mouseWorld };
+      if (e.pointerType !== 'mouse' && this.buildType) this.setGhost(this.mouseWorld);
     });
     cv.addEventListener('pointermove', (e) => {
       this.mouseNX = e.clientX / window.innerWidth - 0.5; this.mouseNY = e.clientY / window.innerHeight - 0.5;
+      if (pts.has(e.pointerId)) pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
       if (this.mode === 'editor' && this.editor) { this.editor.pointer('move', e); return; }
       if (this.mode !== 'game') return;
+      if (pinch && pts.size >= 2) {
+        const [a, b] = [...pts.values()];
+        const d = Math.hypot(a.x - b.x, a.y - b.y), mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
+        this.r.zoomAt(mx, my, d / pinch.d); this.r.panBy(mx - pinch.mx, my - pinch.my);
+        pinch.d = d; pinch.mx = mx; pinch.my = my; this.r.lastZoomAt = performance.now(); this.placePanel();
+        return;
+      }
       this.updateMouse(e);
-      if (e.pointerType === 'mouse' && this.buildType) this.ghost = { ...this.mouseWorld };
+      if (down) {
+        const moved = Math.hypot(e.clientX - down.x, e.clientY - down.y);
+        if (!down.pan && moved > 10 && (this.r.zoom > 1.01 || down.btn === 1 || down.btn === 2)) down.pan = true;
+        if (down.pan) { this.r.panBy(e.clientX - down.lx, e.clientY - down.ly); this.placePanel(); }
+        down.lx = e.clientX; down.ly = e.clientY;
+      }
+      if (e.pointerType === 'mouse' && this.buildType) this.setGhost(this.mouseWorld);
     });
-    cv.addEventListener('pointerup', (e) => {
+    const up = (e) => {
+      pts.delete(e.pointerId);
       if (this.mode === 'editor' && this.editor) { this.editor.pointer('up', e); down = null; return; }
+      if (pinch) { if (pts.size < 2) pinch = null; down = null; return; }
       if (this.mode !== 'game' || !down) return;
       const moved = Math.hypot(e.clientX - down.x, e.clientY - down.y);
-      if (e.button === 2) { down = null; return; }
+      if (e.button === 2 || down.pan) { down = null; return; }
       if (moved < 14) { this.updateMouse(e); this.tap(this.mouseWorld, e); }
       down = null;
-    });
-    cv.addEventListener('pointerleave', (e) => { if (e.pointerType === 'mouse' && this.mode === 'game' && !this.pendingPos) this.ghost = null; });
-    cv.addEventListener('contextmenu', (e) => { e.preventDefault(); if (this.mode === 'game') this.cancel(); });
+    };
+    cv.addEventListener('pointerup', up);
+    cv.addEventListener('pointercancel', up);
+    cv.addEventListener('wheel', (e) => {
+      if (this.mode !== 'game') return;
+      e.preventDefault();
+      this.r.zoomAt(e.clientX, e.clientY, Math.exp(-e.deltaY * 0.0015));
+      this.r.lastZoomAt = performance.now();
+      this.placePanel();
+    }, { passive: false });
+    cv.addEventListener('pointerleave', (e) => { if (e.pointerType === 'mouse' && this.mode === 'game' && !this.pendingPos) this.setGhost(null); });
+    cv.addEventListener('contextmenu', (e) => { e.preventDefault(); if (this.mode === 'game' && !(down && down.pan)) this.cancel(); });
     document.addEventListener('contextmenu', (e) => e.preventDefault());
     window.addEventListener('keydown', (e) => this.key(e));
     window.addEventListener('keyup', (e) => { if (e.key === 'Shift') this.shift = false; });
@@ -428,7 +565,7 @@ export class UI {
       if (g.useAbility(this.targeting, w.x, w.y)) this.targeting = null;
       return;
     }
-    const tower = g.towerNear(w.x, w.y, 30);
+    const tower = (e && e.clientX !== undefined ? this.pickTower(e.clientX, e.clientY) : null) || g.towerNear(w.x, w.y, 30);
     const h = g.hero;
     if (this.heroSelected && h) {
       if (Math.hypot(w.x - h.x, w.y - h.y) < 24) { this.heroSelected = false; return; }
@@ -439,19 +576,20 @@ export class UI {
     if (this.buildType) {
       if (g.canBuild(w.x, w.y)) {
         const t = g.build(this.buildType, w.x, w.y);
-        if (t && !(this.shift || e.shiftKey)) { this.buildType = null; this.ghost = null; this.select({ kind: 'tower', tower: t }); }
+        this.noteBuilt(t);
+        if (t && !(this.shift || e.shiftKey)) { this.buildType = null; this.setGhost(null); this.select({ kind: 'tower', tower: t }); }
         this.refreshBuildSel();
         return;
       }
       if (tower) { this.buildType = null; this.ghost = null; this.refreshBuildSel(); this.select({ kind: 'tower', tower }); return; }
-      this.ghost = { ...w };
+      this.setGhost(w);
       this.toast('Hier ist kein Platz – wähle eine freie Stelle neben dem Weg');
       sfx.play('error');
       return;
     }
     if (tower) { this.pendingPos = null; this.ghost = null; this.select(this.selected?.tower === tower ? null : { kind: 'tower', tower }); this.showBuildInfo(null); return; }
     if (h && h.dead <= 0 && Math.hypot(w.x - h.x, w.y - h.y) < 26) { this.select(null); this.heroSelected = true; return; }
-    if (Math.hypot(w.x - g.base.x, w.y - g.base.y) < 60) { this.select(this.selected?.kind === 'base' ? null : { kind: 'base' }); return; }
+    if (Math.hypot(w.x - g.base.x, w.y - g.base.y) < 60 || (e && Math.abs(e.clientX - this.r.worldToScreen(g.base.x, g.base.y).x) < 30 * this.r.scale && e.clientY < this.r.worldToScreen(g.base.x, g.base.y).y && e.clientY > this.r.worldToScreen(g.base.x, g.base.y, 60).y)) { this.select(this.selected?.kind === 'base' ? null : { kind: 'base' }); return; }
     if (g.canBuild(w.x, w.y)) {
       this.select(null);
       this.pendingPos = this.pendingPos && Math.hypot(this.pendingPos.x - w.x, this.pendingPos.y - w.y) < 20 ? null : { ...w };
@@ -504,6 +642,11 @@ export class UI {
         break;
       }
       case 'b': this.select(this.selected?.kind === 'base' ? null : { kind: 'base' }); break;
+      case 'g': this.toggleRanges(); break;
+      case '0': this.r.resetView(); this.placePanel(); break;
+      case '+': this.r.zoomAt(window.innerWidth / 2, window.innerHeight / 2, 1.2); this.r.lastZoomAt = performance.now(); break;
+      case '-': this.r.zoomAt(window.innerWidth / 2, window.innerHeight / 2, 1 / 1.2); this.r.lastZoomAt = performance.now(); break;
+      case 'F11': e.preventDefault(); toggleFullscreen(); break;
     }
   }
 
@@ -525,8 +668,9 @@ export class UI {
   }
   enterGame(g) {
     this.game = g; this.mode = 'game';
-    this.lastOpts = { mode: g.mode, mapDef: g.mapDef, endless: g.endless, daily: g.daily, difficulty: g.difficulty };
-    this.$('hDiff').textContent = MODE_NAME[g.mode] + ' · ' + DIFFICULTIES[g.difficulty].name;
+    this.lastOpts = { mode: g.mode, mapDef: g.mapDef, endless: g.endless, daily: g.daily, difficulty: g.difficulty, mission: g.mission };
+    this.$('hDiff').textContent = g.mission ? 'Kampagne · ' + g.mission.name : MODE_NAME[g.mode] + ' · ' + DIFFICULTIES[g.difficulty].name;
+    this.r.resetView();
     this.hideScreens();
     this.$('hud').classList.remove('hidden');
     this.heroBox.classList.toggle('hidden', !g.hero);
@@ -605,9 +749,30 @@ export class UI {
         case 'flash': this.r.flash = 0.3; this.r.flashColor = ev.color; break;
         case 'cleared': if (g.canSave()) { store.data.save = g.serialize(); store.save(); } break;
         case 'end': this.onEnd(g, ev.won); break;
+        case 'radio': this.showRadio(ev.text); break;
+        case 'newEnemy': this.showLexCard(ev.type); break;
       }
     }
     g.events.length = 0;
+  }
+  showRadio(text) {
+    const r = this.$('radio');
+    r.innerHTML = `<div class="av">LA</div><div><b>Leitstelle Aurelis</b>${text}</div>`;
+    r.classList.remove('hidden');
+    sfx.play('click');
+    clearTimeout(this._radioT);
+    this._radioT = setTimeout(() => r.classList.add('hidden'), 7500);
+  }
+  showLexCard(type) {
+    const E = ENEMIES[type], T = ENEMY_TIPS[type];
+    if (!E || !T) return;
+    const c = this.$('lexcard');
+    c.innerHTML = `<div class="lh"><img alt="" src="${enemyIcon(type)}"><div><small>Neu im Lexikon</small><h4>${E.name}</h4></div></div><p>${E.desc || ''}</p><p><span>Stärke:</span> ${T.strong}</p><p><span>Konter:</span> ${T.weak}</p>`;
+    const b = this.btn('Verstanden', 'btn', () => c.classList.add('hidden'));
+    c.appendChild(b);
+    c.classList.remove('hidden');
+    clearTimeout(this._lexT);
+    this._lexT = setTimeout(() => c.classList.add('hidden'), 11000);
   }
   onEnd(g, won) {
     const s = store.data;
@@ -625,9 +790,18 @@ export class UI {
       const d = s.daily[g.daily.key] || { score: 0, wave: 0, done: false };
       s.daily[g.daily.key] = { score: Math.max(d.score, score), wave: Math.max(d.wave, g.wave), done: d.done || won };
     }
+    let stars = 0;
+    if (g.mission && won) {
+      const f = g.base.hp / g.base.maxHp;
+      stars = f >= 0.9 ? 3 : f >= 0.5 ? 2 : 1;
+      s.campaign = s.campaign || {};
+      s.campaign[g.mission.id] = Math.max(s.campaign[g.mission.id] || 0, stars);
+    }
     s.save = null;
     store.save(true);
-    setTimeout(() => { if (this.game === g) this.showEnd(g, won, { score, record, hsRecord, rp }); }, won ? 1500 : 2200);
+    const entry = { score, wave: g.clearedUpTo, won, mode: g.mission ? 'kampagne' : g.mode, difficulty: g.difficulty, map: g.mapDef.id, mapName: g.map.name, endless: g.endless, daily: g.daily ? g.daily.key : null, mission: g.mission ? g.mission.id : null };
+    const sent = (!g.mapDef.custom) ? submitScore(entry) : Promise.resolve({ sent: false });
+    setTimeout(() => { if (this.game === g) this.showEnd(g, won, { score, record, hsRecord, rp, stars, sent }); }, won ? 1500 : 2200);
   }
   showEnd(g, won, info) {
     this.togglePause(true);
@@ -653,6 +827,7 @@ export class UI {
         ${bestType ? `<div><span>Bester Turm</span><b style="font-size:15px">${TOWERS[bestType].name}</b></div>` : ''}
         ${g.hero ? `<div><span>Kommandant</span><b>Stufe ${g.hero.level}</b></div>` : ''}
         ${info.rp ? `<div class="hl"><span>Forschungspunkte</span><b>+${info.rp}</b></div>` : ''}
+        ${g.mission ? `<div class="hl"><span>Mission</span><b>${won ? '★'.repeat(info.stars) + '☆'.repeat(3 - info.stars) : 'nicht geschafft'}</b></div>` : ''}
         <div><span>Highscore</span><b>${fmt(store.data.highscore)}</b></div>
       </div>`;
     const r = el('div', 'rowbtns');
@@ -662,11 +837,47 @@ export class UI {
       this.hideScreens(); this.togglePause(false);
     }));
     r.appendChild(this.btn('Nochmal spielen', 'btn primary', () => this.restart()));
+    r.appendChild(this.btn('Ergebnis teilen', 'btn', () => this.share(g, won, info)));
+    r.appendChild(this.btn('Rangliste', 'btn', () => { this.exitToMenu(); this.showRank(g.daily ? 'daily-' + g.daily.key : 'gesamt'); }));
     if (g.mode === 'expert') r.appendChild(this.btn('Forschungslabor', 'btn', () => { this.exitToMenu(); this.showResearch('scrMenu'); }));
     r.appendChild(this.btn('Hauptmenü', 'btn', () => this.exitToMenu()));
     box.appendChild(r);
+    const note = el('p', 'endsub', '');
+    box.appendChild(note);
+    if (info.sent) info.sent.then(res => {
+      if (res.sent) note.textContent = res.rank ? `In der Rangliste eingetragen – Platz ${res.rank}` : 'In der Rangliste eingetragen';
+      else if (!this.settings.playerName) note.textContent = 'Tipp: Gib in der Rangliste einen Namen ein, um mit anderen verglichen zu werden.';
+    });
     s.appendChild(box);
     this.showScreen('scrEnd');
+  }
+
+  // Ergebnis als Bild + Text teilen
+  async share(g, won, info) {
+    const W = 1200, H = 630, c = document.createElement('canvas'); c.width = W; c.height = H;
+    const x = c.getContext('2d');
+    try { x.drawImage(this.r.canvas, 0, 0, W, H); } catch (e) { /* leer */ }
+    const gr = x.createLinearGradient(0, 0, 0, H); gr.addColorStop(0, 'rgba(4,7,14,0.35)'); gr.addColorStop(1, 'rgba(4,7,14,0.92)');
+    x.fillStyle = gr; x.fillRect(0, 0, W, H);
+    x.fillStyle = '#f1f6ff'; x.font = '200 64px system-ui, sans-serif'; x.textAlign = 'center';
+    x.fillText('K E R N W A C H T', W / 2, 120);
+    x.font = '600 34px system-ui, sans-serif'; x.fillStyle = won ? '#a7f3d0' : '#fecdd3';
+    x.fillText(won ? 'Station gerettet' : 'Kern zerstört', W / 2, 190);
+    x.font = '400 26px system-ui, sans-serif'; x.fillStyle = '#c3d0e3';
+    x.fillText(`${g.mission ? 'Kampagne · ' + g.mission.name : MODE_NAME[g.mode] + ' · ' + DIFFICULTIES[g.difficulty].name} · ${g.map.name}`, W / 2, 240);
+    x.font = '700 92px ui-monospace, monospace'; x.fillStyle = '#f5c542';
+    x.fillText(fmt(info.score), W / 2, 420);
+    x.font = '400 26px system-ui, sans-serif'; x.fillStyle = '#c3d0e3';
+    x.fillText(`Welle ${g.clearedUpTo} · ${fmt(g.stats.kills)} Abschüsse · Version ${VERSION}`, W / 2, 480);
+    const text = `Kernwacht: ${fmt(info.score)} Punkte auf ${g.map.name} (${g.mission ? 'Kampagne' : MODE_NAME[g.mode] + ', ' + DIFFICULTIES[g.difficulty].name}), Welle ${g.clearedUpTo}. Schaffst du mehr?`;
+    const blob = await new Promise(r => c.toBlob(r, 'image/png'));
+    const file = blob ? new File([blob], 'kernwacht-ergebnis.png', { type: 'image/png' }) : null;
+    try {
+      if (file && navigator.canShare && navigator.canShare({ files: [file] })) { await navigator.share({ files: [file], text, title: 'Kernwacht' }); return; }
+      if (navigator.share) { await navigator.share({ text, title: 'Kernwacht' }); return; }
+    } catch (e) { if (e && e.name === 'AbortError') return; }
+    try { await navigator.clipboard.writeText(text); this.toast('Text kopiert – das Bild wird heruntergeladen', 'good'); } catch (e) { this.toast('Bild wird heruntergeladen', 'good'); }
+    if (blob) { const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'kernwacht-ergebnis.png'; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 4000); }
   }
 
   // ---------------------------------------------------------------- HUD pro Frame
@@ -710,7 +921,7 @@ export class UI {
         for (const [type, s] of Object.entries(g.nextWaveDef.summary)) {
           const d = el('div', 'pv' + (s.elite ? ' elite' : '') + (type === 'boss' ? ' boss' : ''), `<img alt="" src="${enemyIcon(type, s.elite > 0)}"><b>${s.n}</b>`);
           const E = ENEMIES[type];
-          d.title = `${E.name}: ${E.desc || ''}${s.elite ? ` – davon ${s.elite} Elite. ${ELITE_INFO[type] || ''}` : ''}`;
+          d._tip = () => `<h5>${E.name} <kbd>${s.n}×</kbd></h5><p>${E.desc || ''}${s.elite ? ` Davon ${s.elite} Elite: ${ELITE_INFO[type] || ''}` : ''}</p>${ENEMY_TIPS[type] ? `<p style="margin-top:4px"><span style="color:var(--dim)">Tipp:</span> ${ENEMY_TIPS[type].weak}</p>` : ''}`;
           pv.appendChild(d);
         }
         if (g.nextWaveDef.event) pv.appendChild(el('span', 'pvlabel', '⚠ Ereignis'));
@@ -725,6 +936,7 @@ export class UI {
     // Fähigkeiten
     for (const id of ABILITY_ORDER) {
       const info = g.abilityInfo(id), bt = this.abilBtns[id];
+      bt.classList.toggle('hidden', !!info.hidden);
       const st = (info.locked ? 'L' : '') + (info.ready ? 'R' : '') + (g.energy < info.energy ? 'N' : '') + (this.targeting === id ? 'A' : '');
       if (this.cache.get('as' + id) !== st) {
         this.cache.set('as' + id, st);
@@ -756,8 +968,9 @@ export class UI {
     }
     // Boss-Leiste
     let boss = null;
-    for (const e of g.enemies) if (e.boss && e.active) { boss = e; break; }
+    for (const e of g.enemies) if (e.def.boss && e.active) { boss = e; break; }
     $('bossbar').classList.toggle('hidden', !boss);
+    if (boss) this.set($('bossName'), 'bn', boss.def.name);
     sfx.setBoss(!!boss && !this.paused);
     if (boss) {
       this.set($('bossHp'), 'bh', (boss.hp / boss.maxHp * 100).toFixed(1) + '%', 'width');
@@ -804,15 +1017,19 @@ export class UI {
     const m = el('nav', 'tmenu');
     const item = (label, sub, fn, cls = '') => m.appendChild(this.btn(`${label}${sub ? `<small>${sub}</small>` : ''}`, 'titem ' + cls, fn));
     if (d.save) item('Spiel fortsetzen', `${MODE_NAME[d.save.mode]} · ${d.save.mapDef?.name || ''} · Welle ${d.save.wave}`, () => this.continueGame(), 'accent');
+    const done = Object.keys(d.campaign || {}).length;
+    item('Kampagne', `${done} von ${CAMPAIGN.length} Missionen`, () => this.showCampaign());
     item('Standard', '30 Wellen · mit Tipps', () => this.showMaps('standard'));
     item('Advance', 'Elite-Gegner · Kommandant · Forschung', () => this.showMaps('expert'));
     const dd = d.daily[todayKey()];
     item('Tägliche Herausforderung', dd ? `heute ${fmt(dd.score)} Punkte${dd.done ? ' · geschafft' : ''}` : 'jeden Tag neue Regeln', () => this.showDaily());
     item('Karten-Editor', 'eigene Wege und Landschaften', () => this.openEditor());
-    item('Erfolge', `${Object.keys(d.achievements).length} von ${ACHIEVEMENTS.length}`, () => this.showAch());
+    item('Rangliste', d.settings.playerName ? 'als ' + d.settings.playerName : 'mit anderen vergleichen', () => this.showRank('gesamt'));
+    item('Erfolge & Lexikon', `${Object.keys(d.achievements).length} von ${ACHIEVEMENTS.length} Erfolgen`, () => this.showAch());
     item('Einstellungen', '', () => this.showSettings('scrMenu'));
+    item('Vollbild', '', () => toggleFullscreen());
     box.appendChild(m);
-    box.appendChild(el('div', 'menufoot', `<span>Highscore <b>${fmt(d.highscore)}</b></span><span>Forschung <b>${d.research.points} P</b></span><span>Besiegte Gegner <b>${fmt(d.stats.kills)}</b></span>`));
+    box.appendChild(el('div', 'menufoot', `<span>Highscore <b>${fmt(d.highscore)}</b></span><span>Forschung <b>${d.research.points} P</b></span><span>Besiegte Gegner <b>${fmt(d.stats.kills)}</b></span><span>Version <b>${VERSION}</b></span>`));
     s.appendChild(box);
     this.showScreen('scrMenu');
   }
@@ -931,23 +1148,108 @@ export class UI {
     this.showScreen('scrResearch');
   }
 
-  showAch() {
+  showAch(tab = 'erfolge') {
     const s = this.$('scrAch');
     s.innerHTML = '';
     const A = store.data.achievements;
     const box = el('div', 'box card');
-    const hdr = el('div', 'hdr', `<h2>Erfolge</h2><span style="color:var(--gold);font-family:var(--mono);font-weight:800">${Object.keys(A).length} / ${ACHIEVEMENTS.length}</span>`);
+    const hdr = el('div', 'hdr', `<h2>${tab === 'erfolge' ? 'Erfolge' : 'Gegner-Lexikon'}</h2>`);
+    const seg = el('div', 'seg');
+    seg.appendChild(this.btn(`Erfolge ${Object.keys(A).length}/${ACHIEVEMENTS.length}`, tab === 'erfolge' ? 'on' : '', () => this.showAch('erfolge')));
+    seg.appendChild(this.btn('Lexikon', tab === 'lexikon' ? 'on' : '', () => this.showAch('lexikon')));
+    hdr.appendChild(seg);
     hdr.appendChild(this.btn('Zurück', 'btn', () => this.showMenu()));
     box.appendChild(hdr);
     const grid = el('div', 'achs');
-    for (const a of ACHIEVEMENTS) {
-      const done = !!A[a.id];
-      const date = done ? new Date(A[a.id]).toLocaleDateString('de-DE') : '';
-      grid.appendChild(el('div', 'ach' + (done ? ' done' : ''), `<div class="medal">${done ? '' : '<span style="color:var(--dim)">?</span>'}</div><div><b>${a.name}</b><small>${a.desc}${done ? ' · ' + date : ''}</small></div>`));
+    if (tab === 'erfolge') {
+      for (const a of ACHIEVEMENTS) {
+        const done = !!A[a.id];
+        const date = done ? new Date(A[a.id]).toLocaleDateString('de-DE') : '';
+        grid.appendChild(el('div', 'ach' + (done ? ' done' : ''), `<div class="medal">${done ? '' : '?'}</div><div><b>${a.name}</b><small>${a.desc}${done ? ' · ' + date : ''}</small></div>`));
+      }
+    } else {
+      const seen = store.data.seen || {};
+      for (const [type, E] of Object.entries(ENEMIES)) {
+        const known = seen[type], T = ENEMY_TIPS[type] || {};
+        grid.appendChild(el('div', 'ach' + (known ? ' done' : ''), `<img alt="" src="${enemyIcon(type)}" style="width:40px;height:40px;flex:none;${known ? '' : 'filter:brightness(0) opacity(.4)'}"><div><b>${known ? E.name : 'Unbekannt'}</b><small>${known ? `${E.desc || ''}<br><span style="color:var(--dim)">Konter:</span> ${T.weak || '–'}` : 'Noch nicht begegnet.'}</small></div>`));
+      }
+      box.appendChild(el('p', 'diffdesc', 'Kombi-Effekte: ' + COMBOS.map(c => `<b>${c.name}</b> – ${c.desc}`).join(' · ') + `<br>Turm-Erfahrung: ${VET_RANKS.map(v => `${v.name} ab ${v.kills} Abschüssen (+${Math.round(v.dmg * 100)} % Schaden)`).join(', ')}.`));
     }
     box.appendChild(grid);
     s.appendChild(box);
     this.showScreen('scrAch');
+  }
+
+  showCampaign() {
+    const s = this.$('scrCampaign');
+    s.innerHTML = '';
+    const C = store.data.campaign || {};
+    const box = el('div', 'box card');
+    const hdr = el('div', 'hdr', '<h2>Kampagne · Die Verteidigung von Aurelis</h2>');
+    hdr.appendChild(this.btn('Zurück', 'btn', () => this.showMenu()));
+    box.appendChild(hdr);
+    const list = el('div', 'mlist');
+    CAMPAIGN.forEach((m, i) => {
+      const unlocked = i === 0 || C[CAMPAIGN[i - 1].id];
+      const stars = C[m.id] || 0;
+      const map = MAPS.find(x => x.id === m.map);
+      const row = el('button', 'mrow' + (unlocked ? '' : ' locked'));
+      const cv = document.createElement('canvas'); cv.width = 264; cv.height = 147;
+      row.appendChild(cv); drawThumb(cv, map);
+      if (!unlocked) cv.style.filter = 'grayscale(1) brightness(.5)';
+      row.appendChild(el('div', '', `<h4>${i + 1}. ${m.name}</h4><p>${m.goal}</p><span class="lbl">${map.name} · ${m.waves} Wellen · ${DIFFICULTIES[m.difficulty].name}${m.mode === 'expert' ? ' · Advance' : ''}</span>`));
+      row.appendChild(el('div', 'best' + (stars ? '' : ' none'), unlocked ? (stars ? '★'.repeat(stars) + '☆'.repeat(3 - stars) : 'offen') : 'gesperrt'));
+      row.onclick = () => {
+        if (!unlocked) { sfx.play('error'); this.toast('Erst die vorige Mission schaffen'); return; }
+        sfx.play('click');
+        this.startGame({ mode: m.mode, mapDef: map, endless: false, mission: m, difficulty: m.difficulty });
+      };
+      list.appendChild(row);
+    });
+    box.appendChild(list);
+    box.appendChild(el('p', 'diffdesc', 'Sterne: ★ geschafft · ★★ Kern über 50 % · ★★★ Kern über 90 %.'));
+    s.appendChild(box);
+    this.showScreen('scrCampaign');
+  }
+
+  async showRank(board = 'gesamt') {
+    const s = this.$('scrRank');
+    s.innerHTML = '';
+    const st = this.settings;
+    const box = el('div', 'box card');
+    const hdr = el('div', 'hdr', '<h2>Rangliste</h2>');
+    hdr.appendChild(this.btn('Zurück', 'btn', () => this.showMenu()));
+    box.appendChild(hdr);
+    const opt = el('div', 'optrow', '<span class="lbl">Dein Name</span>');
+    const inp = el('input'); inp.type = 'text'; inp.maxLength = 16; inp.value = st.playerName || ''; inp.placeholder = 'Spielername';
+    inp.style.cssText = 'min-height:32px;border-radius:8px;border:1px solid var(--line2);background:rgba(0,0,0,.3);color:var(--text);padding:0 10px;font:inherit;user-select:text;-webkit-user-select:text';
+    opt.appendChild(inp);
+    opt.appendChild(this.btn('Speichern', 'btn', () => { st.playerName = inp.value.trim().slice(0, 16); store.save(true); this.toast('Name gespeichert', 'good'); }));
+    box.appendChild(opt);
+    const seg = el('div', 'seg'); seg.style.marginBottom = '10px';
+    const today = 'daily-' + todayKey();
+    const boards = [['gesamt', 'Gesamt'], [today, 'Tägliche Herausforderung heute'], ...MAPS.map(m => ['karte-' + m.id, m.name])];
+    for (const [k, l] of boards) seg.appendChild(this.btn(l, board === k ? 'on' : '', () => this.showRank(k)));
+    seg.style.flexWrap = 'wrap';
+    box.appendChild(seg);
+    const info = el('p', 'diffdesc', 'Lade Rangliste …');
+    box.appendChild(info);
+    const tbl = el('div', 'mlist');
+    box.appendChild(tbl);
+    s.appendChild(box);
+    this.showScreen('scrRank');
+    let rows, online = true;
+    try { rows = await fetchScores(board); }
+    catch (e) { online = false; rows = localScores(board); }
+    if (this.$('scrRank') !== s || !s.contains(box)) return;
+    info.innerHTML = online ? `Server-Rangliste · ${rows.length} Einträge` : 'Server-Rangliste nicht erreichbar – hier sind deine eigenen besten Ergebnisse auf diesem Gerät.';
+    if (!rows.length) tbl.appendChild(el('p', 'diffdesc', 'Noch keine Einträge.'));
+    rows.slice(0, 50).forEach((r, i) => {
+      const me = r.name && r.name === st.playerName;
+      const mode = r.mode === 'kampagne' ? 'Kampagne' : MODE_NAME[r.mode] || r.mode;
+      tbl.appendChild(el('div', 'mrow', `<div style="font:600 18px var(--mono);color:${i < 3 ? 'var(--gold)' : 'var(--dim)'};text-align:center">${i + 1}</div><div><h4>${r.name || (online ? '–' : 'Du')}${me ? ' <small style="color:var(--green)">(du)</small>' : ''}</h4><p>${mode} · ${DIFFICULTIES[r.difficulty]?.name || ''} · ${r.mapName || r.map || ''} · Welle ${r.wave}${r.won ? ' · Sieg' : ''}</p></div><div class="best">${fmt(r.score)} P<br><span style="color:var(--dim2)">${new Date(r.ts).toLocaleDateString('de-DE')}</span></div>`));
+    });
+    tbl.querySelectorAll('.mrow').forEach(r => { r.style.gridTemplateColumns = '48px 1fr auto'; r.style.cursor = 'default'; });
   }
 
   showSettings(back) {

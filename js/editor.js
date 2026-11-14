@@ -1,10 +1,10 @@
 // Karten-Editor: Weg frei zeichnen, Startpunkt, Landschaft, Hindernisse, speichern, spielen
-import { TILE, COLS, ROWS, WORLD_W, WORLD_H, BIOMES, BIOME_ORDER } from './data.js';
+import { TILE, COLS, ROWS, WORLD_W, WORLD_H, BIOMES, BIOME_ORDER, TILT } from './data.js';
 import { buildMap, normalizeDef } from './game.js';
 import { store } from './storage.js';
 import { sfx } from './audio.js';
 import { el } from './util.js';
-import { glow, ci } from './sprites.js';
+import { glow, ci, obstacleSprite } from './sprites.js';
 
 const OBST = [['rock', 'Fels'], ['tree', 'Pflanze'], ['crystal', 'Kristall']];
 const snap = (v) => Math.round(v * 4) / 4;
@@ -207,7 +207,11 @@ export class Editor {
     }
     r.worldTransform();
     g.globalAlpha = 1; g.globalCompositeOperation = 'source-over';
-    g.drawImage(this.layer, 0, 0, WORLD_W, WORLD_H);
+    g.setTransform(1, 0, 0, 1, 0, 0);
+    g.drawImage(this.layer, r.wt.tx, r.wt.ty, WORLD_W * r.wt.s, WORLD_H * TILT * r.wt.s);
+    for (const o of [...this.preview.obstacles].sort((a, b) => a.y - b.y)) r.sprUp(obstacleSprite(o, this.preview.biome, r.res), o.x, o.y);
+    g.globalAlpha = 1;
+    r.resetWT();
     g.strokeStyle = 'rgba(255,255,255,0.05)'; g.lineWidth = 1;
     for (let x = 0; x <= COLS; x++) { g.beginPath(); g.moveTo(x * TILE, 0); g.lineTo(x * TILE, WORLD_H); g.stroke(); }
     for (let y = 0; y <= ROWS; y++) { g.beginPath(); g.moveTo(0, y * TILE); g.lineTo(WORLD_W, y * TILE); g.stroke(); }

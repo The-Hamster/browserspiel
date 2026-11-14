@@ -2,7 +2,10 @@
 const KEY = 'kernwacht.v1';
 
 const DEFAULTS = () => ({
-  settings: { volume: 0.7, muted: false, music: true, shake: true, quality: 'hoch', showFps: false, tips: true },
+  settings: { volume: 0.7, muted: false, music: true, shake: true, quality: 'hoch', showFps: false, tips: true, difficulty: 'mittel', playerName: '' },
+  campaign: {},      // Mission -> Sterne
+  seen: {},          // gesichtete Gegnerarten
+  history: [],       // eigene Ergebnisse (lokale Rangliste)
   stats: { kills: 0, games: 0, wins: 0, wavesTotal: 0, playTime: 0 },
   best: {},          // "modus:karte:endlos" -> { wave, score, won }
   highscore: 0,

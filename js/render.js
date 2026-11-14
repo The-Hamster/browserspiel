@@ -1,6 +1,6 @@
 // Zeichnen: Sternenhimmel, Karte, Einheiten, Effekte
-import { TILE, COLS, ROWS, WORLD_W, WORLD_H, TOWERS, ENEMIES, BASE } from './data.js';
-import { glow, smoke, enemySprite, towerBaseSprite, towerHeadSprite, towerHeadShadow, towerLights, mk, clearSpriteCache, PAL, ci, roundRect, tierColor } from './sprites.js';
+import { TILE, COLS, ROWS, WORLD_W, WORLD_H, TOWERS, ENEMIES, BASE, TILT, TOWER_LOOK } from './data.js';
+import { glow, smoke, enemySprite, towerHeadSprite, towerBodySprite, towerDims, obstacleSprite, mk, clearSpriteCache, PAL, ci, roundRect, tierColor } from './sprites.js';
 import { P_GLOW, P_SPARK, P_SMOKE, P_DEBRIS, P_HEAT } from './particles.js';
 import { drawTerrain } from './terrain.js';
 import { rgba, mix, mulberry32, hashString, clamp } from './util.js';
@@ -26,6 +26,8 @@ export class Renderer {
     this.quality = 'hoch';
     this.sandLines = Array.from({ length: 70 }, () => ({ x: Math.random(), y: Math.random(), l: 20 + Math.random() * 60, s: 0.4 + Math.random() * 0.8 }));
     this.storm = [];
+    this.zoom = 1; this.cx = WORLD_W / 2; this.cy = WORLD_H / 2;
+    this.weather = [];
   }
 
   resize(rect) {
@@ -36,11 +38,11 @@ export class Renderer {
     this.canvas.style.width = w + 'px'; this.canvas.style.height = h + 'px';
     this.playRect = rect || { x: 0, y: 0, w, h };
     const r = this.playRect;
-    this.scale = Math.min(r.w / WORLD_W, r.h / WORLD_H);
-    this.ox = r.x + (r.w - WORLD_W * this.scale) / 2;
-    this.oy = r.y + (r.h - WORLD_H * this.scale) / 2;
+    this.HEAD = 34; // Platz über der Karte für hohe Gebäude
+    this.scale0 = Math.min(r.w / WORLD_W, r.h / (WORLD_H * TILT + this.HEAD));
+    this.applyView();
     const cap = this.quality === 'niedrig' ? 1.5 : this.quality === 'mittel' ? 2 : 3;
-    const res = Math.min(cap, Math.max(1, Math.ceil(this.scale * dpr * 2) / 2));
+    const res = Math.min(cap, Math.max(1, Math.ceil(this.scale0 * dpr * 2) / 2));
     if (res !== this.res) { this.res = res; clearSpriteCache(); }
     this.buildStars();
     this.mapKey = null;
@@ -51,13 +53,39 @@ export class Renderer {
   prewarm() {
     this.prewarmed = true;
     for (const type of Object.keys(ENEMIES)) for (const f of [0, 1]) { enemySprite(type, false, this.res, f); if (!ENEMIES[type].boss) enemySprite(type, true, this.res, f); }
-    for (const type of Object.keys(TOWERS)) for (const tier of Object.keys(TOWERS[type].tiers)) { towerBaseSprite(type, tier, this.res); towerHeadSprite(type, tier, this.res); towerHeadShadow(type, tier, this.res); }
+    for (const type of Object.keys(TOWERS)) for (const tier of Object.keys(TOWERS[type].tiers)) { towerBodySprite(type, tier, this.res); towerHeadSprite(type, tier, this.res); }
     for (let i = 0; i < PAL.length; i++) glow(i);
     smoke();
   }
 
-  screenToWorld(x, y) { return { x: (x - this.ox) / this.scale, y: (y - this.oy) / this.scale }; }
-  worldToScreen(x, y) { return { x: this.ox + x * this.scale, y: this.oy + y * this.scale }; }
+  // Ansicht: Zoom und Mittelpunkt (Welt) -> Maßstab und Versatz (CSS-Pixel)
+  applyView() {
+    const r = this.playRect; if (!r || !this.scale0) return;
+    this.zoom = clamp(this.zoom, 1, 2.6);
+    this.scale = this.scale0 * this.zoom;
+    const vw = r.w / this.scale, vh = (r.h - this.HEAD * this.scale0) / (this.scale * TILT);
+    if (this.zoom <= 1.001) { this.cx = WORLD_W / 2; this.cy = WORLD_H / 2; }
+    else {
+      this.cx = vw >= WORLD_W ? WORLD_W / 2 : clamp(this.cx, vw / 2, WORLD_W - vw / 2);
+      this.cy = vh >= WORLD_H ? WORLD_H / 2 : clamp(this.cy, vh / 2, WORLD_H - vh / 2);
+    }
+    this.ox = r.x + r.w / 2 - this.cx * this.scale;
+    this.oy = r.y + this.HEAD * this.scale0 + (r.h - this.HEAD * this.scale0) / 2 - this.cy * TILT * this.scale;
+  }
+  zoomAt(sx, sy, factor) {
+    const w = this.screenToWorld(sx, sy);
+    this.zoom = clamp(this.zoom * factor, 1, 2.6);
+    this.scale = this.scale0 * this.zoom;
+    // Punkt unter dem Zeiger festhalten
+    const r = this.playRect;
+    this.cx = w.x - (sx - (r.x + r.w / 2)) / this.scale;
+    this.cy = w.y - (sy - (r.y + this.HEAD * this.scale0 + (r.h - this.HEAD * this.scale0) / 2)) / (this.scale * TILT);
+    this.applyView();
+  }
+  panBy(dx, dy) { this.cx -= dx / this.scale; this.cy -= dy / (this.scale * TILT); this.applyView(); }
+  resetView() { this.zoom = 1; this.applyView(); }
+  screenToWorld(x, y) { return { x: (x - this.ox) / this.scale, y: (y - this.oy) / (this.scale * TILT) }; }
+  worldToScreen(x, y, z = 0) { return { x: this.ox + x * this.scale, y: this.oy + y * TILT * this.scale - z * this.scale }; }
 
   // ---------------------------------------------------------------- Hintergrund
   buildStars() {
@@ -156,31 +184,46 @@ export class Renderer {
   }
 
   // ---------------------------------------------------------------- Karten-Ebene
-  buildMapLayer(map, exact = false) {
-    const res = exact ? this.scale * this.dpr : this.res;
-    const c = mk(WORLD_W * res, WORLD_H * res), g = c.getContext('2d');
-    g.scale(res, res);
-    drawTerrain(g, map);
+  buildMapLayer(map, exact = false, upright = true) {
+    const coarse = window.matchMedia && matchMedia('(pointer: coarse)').matches;
+    const res = exact ? Math.min(coarse ? 2.5 : 3.5, this.scale * this.dpr) : this.res;
+    const c = mk(WORLD_W * res, WORLD_H * TILT * res), g = c.getContext('2d');
+    g.scale(res, res * TILT);
+    drawTerrain(g, map, { upright });
+    c.res = res;
     return c;
   }
   ensureMap(map) {
-    const key = map.id + '|' + (this.scale * this.dpr).toFixed(4);
+    const want = Math.min(3.5, this.scale * this.dpr);
+    const key = map.id + '|' + want.toFixed(3);
     if (this.mapKey === key && this.mapRef === map) return;
+    // beim Zoomen erst nach kurzer Ruhe neu zeichnen
+    if (this.mapRef === map && this.mapLayer && performance.now() - (this.lastZoomAt || 0) < 250) return;
     this.mapLayer = this.buildMapLayer(map, true);
     this.mapKey = key; this.mapRef = map;
   }
 
+  // Bodenebene: x normal, y gestaucht
   worldTransform(shx = 0, shy = 0) {
     const s = this.scale * this.dpr;
-    this.wt = { s, tx: (this.ox + shx) * this.dpr, ty: (this.oy + shy) * this.dpr };
-    this.ctx.setTransform(s, 0, 0, s, this.wt.tx, this.wt.ty);
+    this.wt = { s, sy: s * TILT, tx: (this.ox + shx) * this.dpr, ty: (this.oy + shy) * this.dpr };
+    this.ctx.setTransform(s, 0, 0, s * TILT, this.wt.tx, this.wt.ty);
   }
-  resetWT() { const w = this.wt; this.ctx.setTransform(w.s, 0, 0, w.s, w.tx, w.ty); }
-  // Sprite gedreht zeichnen ohne save/restore
-  sprR(sp, x, y, ang, scale = 1) {
-    const w = this.wt, c = Math.cos(ang) * w.s * scale, sn = Math.sin(ang) * w.s * scale;
-    this.ctx.setTransform(c, sn, -sn, c, w.tx + x * w.s, w.ty + y * w.s);
+  resetWT() { const w = this.wt; this.ctx.setTransform(w.s, 0, 0, w.sy, w.tx, w.ty); }
+  // aufrechte Ebene: Koordinaten (x, y*TILT - z) in Weltpixeln, nicht gestaucht
+  uprightT() { const w = this.wt; this.ctx.setTransform(w.s, 0, 0, w.s, w.tx, w.ty); }
+  // flaches Sprite in der Bodenebene drehen (z = Höhe über Boden)
+  sprR(sp, x, y, ang, scale = 1, z = 0) {
+    const w = this.wt, c = Math.cos(ang) * scale, sn = Math.sin(ang) * scale;
+    this.ctx.setTransform(c * w.s, sn * w.sy, -sn * w.s, c * w.sy, w.tx + x * w.s, w.ty + y * w.sy - z * w.s);
     this.ctx.drawImage(sp.c, -sp.w / 2, -sp.h / 2, sp.w, sp.h);
+  }
+  // aufrechtes Sprite mit Fußpunkt
+  sprUp(sp, x, y, z = 0, alpha = 1) {
+    const w = this.wt;
+    this.ctx.globalAlpha = alpha;
+    this.ctx.setTransform(w.s, 0, 0, w.s, w.tx + x * w.s, w.ty + y * w.sy - z * w.s);
+    this.ctx.drawImage(sp.c, -sp.ax, -sp.ay, sp.w, sp.h);
   }
 
   spr(sp, x, y, ang = 0, scale = 1, alpha = 1) {
@@ -213,7 +256,9 @@ export class Renderer {
     g.globalAlpha = 1; g.globalCompositeOperation = 'source-over';
     g.setTransform(1, 0, 0, 1, 0, 0);
     if (game.decals.length) this.bakeDecals(game);
-    g.drawImage(this.mapLayer, Math.round(this.wt.tx), Math.round(this.wt.ty));
+    const L = this.mapLayer, want = this.scale * this.dpr;
+    if (Math.abs(L.res - want) < 0.01) g.drawImage(L, Math.round(this.wt.tx), Math.round(this.wt.ty));
+    else g.drawImage(L, this.wt.tx, this.wt.ty, WORLD_W * want, WORLD_H * TILT * want);
     this.resetWT();
     const low = ui.settings.quality === 'niedrig';
     if (ui.buildType || ui.pendingPos) this.drawBuildGrid(game);
@@ -248,17 +293,19 @@ export class Renderer {
     // Auswahl / Vorschau
     this.drawSelection(game, ui);
 
-    this.drawBase(game);
-    this.drawTowers(game);
-
-    // Schatten der Flieger
-    g.globalAlpha = 0.35; g.fillStyle = '#000';
-    for (const e of game.enemies) if (e.air && e.active) { g.beginPath(); g.ellipse(e.x + 10, e.y + 18, e.r * 0.9, e.r * 0.5, 0, 0, 7); g.fill(); }
+    if (ui.showRanges) this.drawAllRanges(game);
+    // Schatten der Flieger + Drohnen auf dem Boden
+    g.globalAlpha = 0.3; g.fillStyle = '#000';
+    for (const e of game.enemies) if (e.air && e.active) { g.beginPath(); g.ellipse(e.x + 6, e.y + 4, e.r * 0.9, e.r * 0.6, 0, 0, 7); g.fill(); }
+    for (const tw of game.towers) for (const d of tw.drones) { g.beginPath(); g.ellipse(d.x + 4, d.y + 3, 6, 4, 0, 0, 7); g.fill(); }
     g.globalAlpha = 1;
+    this.drawEnemies(game, false);
+    if (game.hero) this.drawHero(game, ui);
     // Rauch (normale Mischung)
     this.drawParticles(game.particles, true, low);
-    this.drawEnemies(game);
-    if (game.hero) this.drawHero(game, ui);
+    // aufrechte Objekte von hinten nach vorn
+    this.drawUprights(game, ui);
+    this.drawEnemies(game, true);
 
     // Additive Effekte
     g.globalCompositeOperation = 'lighter';
@@ -274,6 +321,7 @@ export class Renderer {
     this.drawHealthBars(game);
     this.drawEventOverlay(game, dt);
     this.drawCursor(game, ui);
+    if (this.quality !== 'niedrig') this.drawWeather(game, dt);
 
     // Bildschirm-Ebene
     g.setTransform(1, 0, 0, 1, 0, 0);
@@ -295,8 +343,8 @@ export class Renderer {
 
   // Brandflecken direkt in die Bodenebene einbrennen
   bakeDecals(game) {
-    const c = this.mapLayer, g = c.getContext('2d'), res = this.scale * this.dpr;
-    g.save(); g.setTransform(res, 0, 0, res, 0, 0);
+    const c = this.mapLayer, g = c.getContext('2d'), res = c.res;
+    g.save(); g.setTransform(res, 0, 0, res * TILT, 0, 0);
     for (const d of game.decals) {
       const gr = g.createRadialGradient(d.x, d.y, 0, d.x, d.y, d.r);
       gr.addColorStop(0, 'rgba(8,6,6,0.42)'); gr.addColorStop(0.6, 'rgba(12,10,10,0.2)'); gr.addColorStop(1, 'rgba(0,0,0,0)');
@@ -425,200 +473,251 @@ export class Renderer {
         const rr = (spec.range || 1.5) * TILE;
         g.fillStyle = rgba(TOWERS[buildType].color, 0.06); g.strokeStyle = rgba(TOWERS[buildType].color, 0.5);
         g.setLineDash([8, 8]); g.beginPath(); g.arc(h.x, h.y, rr, 0, 7); g.fill(); g.stroke(); g.setLineDash([]);
-        this.spr(towerBaseSprite(buildType, '1', this.res), h.x, h.y, 0, 1, 0.6);
-        this.spr(towerHeadSprite(buildType, '1', this.res), h.x, h.y, -Math.PI / 2, 1, 0.6);
+        const body = towerBodySprite(buildType, '1', this.res);
+        this.sprUp(body, h.x, h.y, 0, 0.65);
+        g.globalAlpha = 0.65;
+        this.sprR(towerHeadSprite(buildType, '1', this.res), h.x, h.y, -Math.PI / 2, 1, body.top);
+        this.resetWT();
         g.globalAlpha = 1;
+        if (ui.coverage !== undefined) {
+          this.uprightT();
+          g.font = '600 12px system-ui, sans-serif'; g.textAlign = 'center';
+          const txt = ui.coverage > 0 ? `deckt ${ui.coverage.toFixed(1)} Felder Weg ab` : 'erreicht keinen Weg';
+          g.lineWidth = 3; g.strokeStyle = 'rgba(0,0,0,0.8)'; g.strokeText(txt, h.x, h.y * TILT + 34);
+          g.fillStyle = ui.coverage > 0 ? '#a7f3d0' : '#fca5a5'; g.fillText(txt, h.x, h.y * TILT + 34);
+          this.resetWT();
+        }
       } else if (!ok) {
         g.beginPath(); g.moveTo(h.x - 8, h.y - 8); g.lineTo(h.x + 8, h.y + 8); g.moveTo(h.x + 8, h.y - 8); g.lineTo(h.x - 8, h.y + 8); g.stroke();
       }
     }
   }
 
-  drawBase(game) {
+  // Reaktorkomplex (aufrecht, animiert)
+  drawReactor(game) {
     const g = this.ctx, b = game.base, t = this.time;
     const hpF = b.hp / b.maxHp;
     const col = hpF > 0.5 ? '#36f1ff' : hpF > 0.25 ? '#ffcf3a' : '#ff3d5a';
-    const cidx = ci(col);
+    this.uprightT();
+    g.save(); g.translate(b.x, b.y * TILT);
+    const R = 25, H = 44, ry = R * TILT;
+    // Schatten
+    g.fillStyle = 'rgba(0,0,0,0.35)'; g.beginPath(); g.ellipse(14, -2, R + 14, ry + 6, 0, 0, 7); g.fill();
+    // Sockelring
+    const sg = g.createLinearGradient(-R - 10, 0, R + 10, 0); sg.addColorStop(0, '#5a6476'); sg.addColorStop(1, '#1c2129');
+    g.fillStyle = sg; g.beginPath(); g.moveTo(-R - 10, -8); g.lineTo(-R - 10, 0); g.ellipse(0, 0, R + 10, (R + 10) * TILT, 0, Math.PI, 0, true); g.lineTo(R + 10, -8); g.closePath(); g.fill();
+    g.fillStyle = '#3a4352'; g.beginPath(); g.ellipse(0, -8, R + 10, (R + 10) * TILT, 0, 0, 7); g.fill();
+    // Kernzylinder
+    const cg = g.createLinearGradient(-R, 0, R, 0); cg.addColorStop(0, '#7d889c'); cg.addColorStop(0.45, '#3a4250'); cg.addColorStop(1, '#151920');
+    g.fillStyle = cg; g.beginPath(); g.moveTo(-R, -H); g.lineTo(-R, -8); g.ellipse(0, -8, R, ry, 0, Math.PI, 0, true); g.lineTo(R, -H); g.closePath(); g.fill();
+    // Leuchtbänder (wandern nach oben)
+    for (let i = 0; i < 3; i++) {
+      const k = ((t * 0.6 + i / 3) % 1), y = -10 - k * (H - 14);
+      g.strokeStyle = rgba(col, 0.25 + 0.6 * Math.sin(k * Math.PI)); g.lineWidth = 2;
+      g.beginPath(); g.ellipse(0, y, R, ry, 0, 0, Math.PI); g.stroke();
+    }
+    // Sichtfenster
+    g.fillStyle = rgba(col, 0.9); for (let i = -1; i <= 1; i++) g.fillRect(i * 9 - 2, -H * 0.55 + ry * 0.6, 4, 8);
+    // Deckel mit pulsierendem Kern
+    g.fillStyle = '#4b5566'; g.beginPath(); g.ellipse(0, -H, R, ry, 0, 0, 7); g.fill();
     g.globalCompositeOperation = 'lighter';
-    this.glowAt(cidx, b.x, b.y, 150 + Math.sin(t * 2.5) * 12, 0.45);
-    g.globalCompositeOperation = 'source-over';
-    // Ringe
-    g.save(); g.translate(b.x, b.y);
-    g.fillStyle = '#10141c'; g.beginPath(); g.arc(0, 0, 40, 0, 7); g.fill();
-    g.strokeStyle = rgba(col, 0.8); g.lineWidth = 3; g.shadowColor = col; g.shadowBlur = 12;
-    for (let i = 0; i < 4; i++) { const a = t * 0.6 + i * Math.PI / 2; g.beginPath(); g.arc(0, 0, 36, a, a + 1.1); g.stroke(); }
-    g.lineWidth = 2; g.strokeStyle = rgba(col, 0.5);
-    for (let i = 0; i < 6; i++) { const a = -t * 1.1 + i * Math.PI / 3; g.beginPath(); g.arc(0, 0, 27, a, a + 0.6); g.stroke(); }
-    g.shadowBlur = 0;
-    // Kern
     const pulse = 0.85 + Math.sin(t * 4) * 0.15;
-    g.globalCompositeOperation = 'lighter';
-    g.drawImage(glow(cidx), -24 * pulse, -24 * pulse, 48 * pulse, 48 * pulse);
-    g.drawImage(glow(0), -10, -10, 20, 20);
+    g.drawImage(glow(ci(col)), -30 * pulse, -H - 30 * pulse, 60 * pulse, 60 * pulse);
+    g.drawImage(glow(0), -9, -H - 9, 18, 18);
+    // rotierende Ringe
+    g.strokeStyle = rgba(col, 0.8); g.lineWidth = 2.5;
+    for (let i = 0; i < 3; i++) { const a = t * 0.9 + i * 2.094; g.beginPath(); g.ellipse(0, -H * 0.5, R + 12, (R + 12) * TILT, 0, a, a + 1.1); g.stroke(); }
     g.globalCompositeOperation = 'source-over';
-    // Kanone
-    g.rotate(b.angle);
-    const rc = b.recoil * 4;
-    g.fillStyle = '#2c3442'; g.strokeStyle = col; g.lineWidth = 1.5;
-    const twin = game.baseCannon().twin;
-    for (const off of twin ? [-6, 6] : [0]) { g.fillRect(14 - rc, off - 3, 22, 6); g.strokeRect(14 - rc, off - 3, 22, 6); }
     g.restore();
-    // Schild
+    // Kanone obenauf (dreht in der Bodenebene)
+    const w = this.wt, c = Math.cos(b.angle), sn = Math.sin(b.angle);
+    g.setTransform(c * w.s, sn * w.sy, -sn * w.s, c * w.sy, w.tx + b.x * w.s, w.ty + b.y * w.sy - (H + 6) * w.s);
+    const rc = b.recoil * 4, twin = game.baseCannon().twin;
+    g.fillStyle = '#2c3442'; g.strokeStyle = col; g.lineWidth = 1.2;
+    for (const off of twin ? [-5, 5] : [0]) { g.fillRect(6 - rc, off - 3, 24, 6); g.strokeRect(6 - rc, off - 3, 24, 6); }
+    g.fillStyle = '#5a6476'; g.beginPath(); g.arc(0, 0, 9, 0, 7); g.fill();
+    this.uprightT();
+    // Schildkuppel
     if (b.shieldMax > 0 && b.shield > 0) {
       const f = b.shield / b.shieldMax;
-      g.globalCompositeOperation = 'lighter';
-      g.strokeStyle = rgba('#4f9dff', 0.25 + f * 0.5); g.lineWidth = 3;
-      g.beginPath(); g.arc(b.x, b.y, 52, 0, 7); g.stroke();
-      g.fillStyle = rgba('#4f9dff', 0.05 + f * 0.06); g.fill();
-      g.strokeStyle = rgba('#a8d0ff', 0.25 * f); g.lineWidth = 1;
-      for (let i = 0; i < 6; i++) { const a = t * 0.5 + i * 1.047; g.beginPath(); g.arc(b.x, b.y, 52, a, a + 0.4); g.stroke(); }
-      g.globalCompositeOperation = 'source-over';
+      g.save(); g.translate(b.x, b.y * TILT);
+      const dg = g.createRadialGradient(-18, -50, 5, 0, -20, 80);
+      dg.addColorStop(0, rgba('#a8d0ff', 0.18 * f + 0.05)); dg.addColorStop(1, rgba('#4f9dff', 0.04));
+      g.fillStyle = dg; g.beginPath(); g.ellipse(0, -10, 62, 70, 0, Math.PI, 0); g.ellipse(0, -10, 62, 62 * TILT, 0, 0, Math.PI); g.fill();
+      g.strokeStyle = rgba('#7cc0ff', 0.25 + 0.45 * f); g.lineWidth = 1.5;
+      g.beginPath(); g.ellipse(0, -10, 62, 70, 0, Math.PI, 0); g.stroke();
+      g.beginPath(); g.ellipse(0, -10, 62, 62 * TILT, 0, 0, 7); g.stroke();
+      g.restore();
     }
-    if (b.heal > 0) { g.globalCompositeOperation = 'lighter'; this.glowAt(ci('#5dffb0'), b.x, b.y, 130, 0.4); g.globalCompositeOperation = 'source-over'; }
+    if (b.heal > 0) { g.globalCompositeOperation = 'lighter'; this.glowAt(ci('#5dffb0'), b.x, b.y * TILT - 25, 130, 0.4); g.globalCompositeOperation = 'source-over'; }
+    this.resetWT();
     g.globalAlpha = 1;
   }
 
-  drawTowers(game) {
-    const g = this.ctx, res = this.res, t = this.time, T = game.towers;
-    // Sockel + Köpfe
-    for (const tw of T) {
-      const off = tw.offline > 0;
-      g.globalAlpha = off ? 0.5 : 1;
-      const bs = towerBaseSprite(tw.type, tw.tier, res);
-      g.drawImage(bs.c, tw.x - bs.w / 2, tw.y - bs.h / 2, bs.w, bs.h);
-    }
-    for (const tw of T) {
-      const off = tw.offline > 0;
-      g.globalAlpha = off ? 0.5 : 1;
+  // Alle aufrechten Objekte (Türme, Hindernisse, Reaktor) nach Tiefe sortiert
+  drawUprights(game, ui) {
+    const g = this.ctx, res = this.res, t = this.time;
+    const list = this._up || (this._up = []);
+    list.length = 0;
+    for (const tw of game.towers) list.push(tw);
+    const map = game.map;
+    if (!map._big) map._big = [...map.obstacles, ...map.deco.filter(d => d.block)];
+    for (const o of map._big) list.push(o);
+    list.push(game.base);
+    list.sort((a, b) => a.y - b.y);
+    const B = map.biome;
+    for (const o of list) {
+      if (o === game.base) { this.drawReactor(game); continue; }
+      if (o.kind) { this.sprUp(obstacleSprite(o, B, res), o.x, o.y); continue; }
+      const tw = o, off = tw.offline > 0 || tw.jammed > 0;
+      const body = towerBodySprite(tw.type, tw.tier, res);
+      this.sprUp(body, tw.x, tw.y, 0, off ? 0.6 : 1);
+      g.globalAlpha = off ? 0.6 : 1;
       let ang = 0;
       const rot = ROTATING[tw.type];
       if (rot) ang = tw.angle;
       else if (tw.type === 'radar') ang = tw.spin;
       else if (tw.type === 'tesla' || tw.type === 'emp') ang = t * 0.4;
-      const rx = rot ? -Math.cos(tw.angle) * tw.recoil * 3 : 0;
-      const ry = rot ? -Math.sin(tw.angle) * tw.recoil * 3 : 0;
-      this.sprR(towerHeadShadow(tw.type, tw.tier, res), tw.x + rx + 4, tw.y + ry + 6, ang);
-      this.sprR(towerHeadSprite(tw.type, tw.tier, res), tw.x + rx, tw.y + ry, ang);
+      const rx = rot ? -Math.cos(tw.angle) * tw.recoil * 3 : 0, ry = rot ? -Math.sin(tw.angle) * tw.recoil * 3 : 0;
+      const L = TOWER_LOOK[tw.type];
+      const hs = (L.shape === 'mast' ? 0.8 : L.R < 18 ? 0.9 : 1.08);
+      this.sprR(towerHeadSprite(tw.type, tw.tier, res), tw.x + rx, tw.y + ry, ang, hs, body.top);
+      g.globalAlpha = 1;
     }
     this.resetWT();
-    g.globalAlpha = 1;
-    // Additive Effekte
+    // Leuchten, Schilde, Drohnen
     g.globalCompositeOperation = 'lighter';
-    for (const tw of T) {
+    for (const tw of game.towers) {
+      const top = towerDims(tw.type, tw.tier).H, ty = tw.y - top / TILT;
+      if (tw.jammed > 0) { this.glowAt(ci('#ff9a3c'), tw.x, ty, 40, 0.5 + Math.sin(t * 20) * 0.3); continue; }
       if (tw.offline > 0) continue;
       const sp = tw.spec;
-      if (tw.type === 'tesla') this.glowAt(ci('#c9a7ff'), tw.x, tw.y, 40 + Math.sin(t * 9 + tw.id) * 8, 0.6);
-      else if (tw.type === 'emp') { const k = clamp(1 - Math.max(0, tw.cd) * sp.rate, 0, 1); this.glowAt(ci('#7d7bff'), tw.x, tw.y, 20 + k * 30, 0.5 * k); }
+      if (tw.type === 'tesla') this.glowAt(ci('#c9a7ff'), tw.x, ty - 4, 44 + Math.sin(t * 9 + tw.id) * 8, 0.65);
+      else if (tw.type === 'emp') { const k = clamp(1 - Math.max(0, tw.cd) * sp.rate, 0, 1); this.glowAt(ci('#7d7bff'), tw.x, ty, 20 + k * 30, 0.5 * k); }
       else if (tw.type === 'shield') {
-        g.globalAlpha = 1;
-        g.strokeStyle = rgba('#4f9dff', 0.18 + Math.sin(t * 2 + tw.id) * 0.08); g.lineWidth = 2;
+        g.strokeStyle = rgba('#4f9dff', 0.16 + Math.sin(t * 2 + tw.id) * 0.06); g.lineWidth = 2;
         g.beginPath(); g.arc(tw.x, tw.y, sp.range * TILE, 0, 7); g.stroke();
+        this.glowAt(ci('#4f9dff'), tw.x, ty - 6, 30, 0.6);
       } else if (tw.type === 'radar') {
-        g.globalAlpha = 1;
         const R = game.towerRange(tw);
-        g.fillStyle = rgba('#66ffcc', 0.06);
+        g.fillStyle = rgba('#66ffcc', 0.05);
         g.beginPath(); g.moveTo(tw.x, tw.y); g.arc(tw.x, tw.y, R, tw.spin - 0.5, tw.spin); g.closePath(); g.fill();
-        g.strokeStyle = rgba('#66ffcc', 0.12); g.lineWidth = 1; g.beginPath(); g.arc(tw.x, tw.y, R, 0, 7); g.stroke();
       }
       if (tw.shield > 1) {
         const f = tw.shield / Math.max(1, tw.buffs.shieldCap);
-        g.globalAlpha = 1;
         g.strokeStyle = rgba('#4f9dff', 0.2 + 0.4 * f); g.lineWidth = 2;
-        g.beginPath(); g.arc(tw.x, tw.y, 28, 0, 7); g.stroke();
+        g.beginPath(); g.ellipse(tw.x, tw.y - top / TILT * 0.5, 26, 26 + top * 0.6, 0, 0, 7); g.stroke();
       }
-      for (const d of tw.drones) this.glowAt(ci('#5dffb0'), d.x, d.y, 18, 0.7);
       // Positionslichter
-      const lt = towerLights(tw.tier), blink = Math.sin(t * 3 + tw.id * 1.7) > 0.2;
-      this.glowAt(ci('#ff3d5a'), tw.x + lt[0][0], tw.y + lt[0][1] - 1, blink ? 9 : 5, blink ? 0.9 : 0.4);
-      this.glowAt(ci('#5dffb0'), tw.x + lt[1][0], tw.y + lt[1][1] - 1, !blink ? 9 : 5, !blink ? 0.9 : 0.4);
+      const blink = Math.sin(t * 3 + tw.id * 1.7) > 0.2;
+      this.glowAt(ci('#ff3d5a'), tw.x - 12, ty, blink ? 9 : 5, blink ? 0.9 : 0.35);
+      this.glowAt(ci('#5dffb0'), tw.x + 12, ty, !blink ? 9 : 5, !blink ? 0.9 : 0.35);
+      for (const d of tw.drones) this.glowAt(ci('#5dffb0'), d.x, d.y - 22 / TILT, 18, 0.7);
     }
-    g.globalAlpha = 1;
     g.globalCompositeOperation = 'source-over';
-    // Drohnen, Stufen, Ausfall
     g.fillStyle = '#d8fff0';
-    for (const tw of T) {
-      if (!tw.drones.length) continue;
-      for (const d of tw.drones) {
-        const c = Math.cos(d.ang), s = Math.sin(d.ang);
-        g.beginPath();
-        g.moveTo(d.x + c * 7, d.y + s * 7);
-        g.lineTo(d.x - c * 5 + s * 5, d.y - s * 5 - c * 5);
-        g.lineTo(d.x - c * 2, d.y - s * 2);
-        g.lineTo(d.x - c * 5 - s * 5, d.y - s * 5 + c * 5);
-        g.closePath(); g.fill();
-      }
+    for (const tw of game.towers) for (const d of tw.drones) {
+      const c = Math.cos(d.ang), s2 = Math.sin(d.ang), y = d.y - 22 / TILT;
+      g.beginPath(); g.moveTo(d.x + c * 7, y + s2 * 7); g.lineTo(d.x - c * 5 + s2 * 5, y - s2 * 5 - c * 5); g.lineTo(d.x - c * 2, y - s2 * 2); g.lineTo(d.x - c * 5 - s2 * 5, y - s2 * 5 + c * 5); g.closePath(); g.fill();
     }
-    for (const tw of T) {
+    // Stufen, Erfahrung, Ausfall (aufrecht)
+    this.uprightT();
+    for (const tw of game.towers) {
+      const { H } = towerDims(tw.type, tw.tier), sy = tw.y * TILT;
       const lvl = tw.tier === '1' ? 1 : tw.tier === '2' ? 2 : 3;
       g.fillStyle = tierColor(tw.type, tw.tier);
-      for (let i = 0; i < lvl; i++) { g.beginPath(); g.arc(tw.x - (lvl - 1) * 4 + i * 8, tw.y + 24, 2.2, 0, 7); g.fill(); }
+      for (let i = 0; i < lvl; i++) { g.beginPath(); g.arc(tw.x - (lvl - 1) * 4 + i * 8, sy + 22, 2.2, 0, 7); g.fill(); }
+      if (tw.vet) { g.fillStyle = '#ffd23e'; g.font = '700 10px system-ui, sans-serif'; g.textAlign = 'center'; g.fillText('★'.repeat(tw.vet), tw.x, sy - H - 16); }
       if (tw.offline > 0) {
         g.globalAlpha = 0.5 + Math.sin(t * 10) * 0.3;
-        g.strokeStyle = '#ff3d5a'; g.lineWidth = 3;
-        g.beginPath(); g.moveTo(tw.x - 10, tw.y - 10); g.lineTo(tw.x + 10, tw.y + 10); g.moveTo(tw.x + 10, tw.y - 10); g.lineTo(tw.x - 10, tw.y + 10); g.stroke();
+        g.strokeStyle = '#ff3d5a'; g.lineWidth = 3; const cy = sy - H * 0.6;
+        g.beginPath(); g.moveTo(tw.x - 8, cy - 8); g.lineTo(tw.x + 8, cy + 8); g.moveTo(tw.x + 8, cy - 8); g.lineTo(tw.x - 8, cy + 8); g.stroke();
         g.globalAlpha = 1;
       }
+    }
+    // Kombi-Verbindungen des gewählten Turms
+    const sel = ui.selected?.tower;
+    if (sel && sel.combos && sel.combos.length) {
+      g.strokeStyle = 'rgba(255,210,62,0.8)'; g.lineWidth = 2; g.setLineDash([5, 5]); g.lineDashOffset = -t * 30;
+      for (const c of sel.combos) { g.beginPath(); g.moveTo(sel.x, sel.y * TILT - 10); g.lineTo(c.partner.x, c.partner.y * TILT - 10); g.stroke(); }
+      g.setLineDash([]);
+    }
+    this.resetWT();
+  }
+
+  drawAllRanges(game) {
+    const g = this.ctx;
+    for (const tw of game.towers) {
+      if (tw.spec.kind === 'shieldgen') continue;
+      const col = TOWERS[tw.type].color;
+      g.fillStyle = rgba(col, 0.035); g.strokeStyle = rgba(col, 0.35); g.lineWidth = 1.5;
+      g.beginPath(); g.arc(tw.x, tw.y, game.towerRange(tw), 0, 7); g.fill(); g.stroke();
     }
   }
 
-  drawEnemies(game) {
+  // Gegner: Bodengegner flach in der Bodenebene, Flieger schweben darüber
+  enemyZ(e) { return e.air ? 20 : e.type === 'boss' ? 12 : 0; }
+  drawEnemies(game, air) {
     const g = this.ctx, t = this.time, E = game.enemies;
-    // 1) Leuchten
+    const vis = (e) => e.active && e.air === air && !(e.cloaked && !e.revealed);
     g.globalCompositeOperation = 'lighter';
     for (const e of E) {
-      if (!e.active || (e.cloaked && !e.revealed) || !(e.boss || e.elite || e.type === 'flyer')) continue;
-      this.glowAt(ci(e.def.color), e.x, e.y, e.r * (e.boss ? 3.5 : 3), e.boss ? 0.35 : 0.22);
+      if (!vis(e) || !(e.boss || e.elite || e.type === 'flyer')) continue;
+      this.glowAt(ci(e.def.color), e.x, e.y - this.enemyZ(e) / TILT, e.r * (e.boss ? 3.5 : 3), e.boss ? 0.35 : 0.22);
     }
     g.globalCompositeOperation = 'source-over';
-    // 2) Körper (erst Boden, dann Luft)
-    for (let pass = 0; pass < 2; pass++) {
-      for (const e of E) {
-        if (!e.active || (pass === 0) === e.air) continue;
-        const hidden = e.cloaked && !e.revealed;
-        let sc = 1 + (e.hit > 0 ? e.hit * 1.8 : 0);
-        if (e.type === 'splitter') sc *= 1 + Math.sin(e.anim * 5) * 0.06;
-        const rate = e.type === 'swarm' || e.type === 'mite' ? 14 : e.type === 'tank' || e.type === 'boss' ? 6 : 4;
-        const moving = e.stunT <= 0;
-        const frame = moving ? Math.floor(e.anim * rate) & 1 : 0;
-        g.globalAlpha = hidden ? 0.1 + Math.sin(t * 7 + e.wob) * 0.05 : e.cloaked ? 0.85 : 1;
-        const by = e.air ? Math.sin(e.anim * 3 + e.wob) * 2 : 0;
-        this.sprR(enemySprite(e.type, e.elite, this.res, frame), e.x, e.y + by, e.angle, sc);
-      }
+    for (const e of E) {
+      if (!e.active || e.air !== air) continue;
+      const hidden = e.cloaked && !e.revealed;
+      let sc = 1 + (e.hit > 0 ? e.hit * 1.8 : 0);
+      if (e.type === 'splitter') sc *= 1 + Math.sin(e.anim * 5) * 0.06;
+      const rate = e.type === 'swarm' || e.type === 'mite' ? 14 : e.type === 'tank' || e.def.boss ? 6 : 4;
+      const frame = e.stunT <= 0 ? Math.floor(e.anim * rate) & 1 : 0;
+      g.globalAlpha = hidden ? 0.1 + Math.sin(t * 7 + e.wob) * 0.05 : e.cloaked ? 0.85 : 1;
+      const z = this.enemyZ(e) + (e.air || e.type === 'boss' ? Math.sin(e.anim * 3 + e.wob) * 2 : 0);
+      if (z > 0 && !e.air) { g.globalAlpha *= 0.3; this.resetWT(); g.fillStyle = '#000'; g.beginPath(); g.ellipse(e.x + 6, e.y + 4, e.r, e.r * 0.7, 0, 0, 7); g.fill(); g.globalAlpha = hidden ? 0.1 : 1; }
+      this.sprR(enemySprite(e.type, e.elite, this.res, frame), e.x, e.y, e.angle, sc, z);
     }
     this.resetWT();
     g.globalAlpha = 1;
-    // Boss-Ringe + Schuss-Ankündigung
     for (const e of E) {
-      if (!e.boss || !e.active) continue;
+      if (!e.def.boss || !e.active || e.air !== air) continue;
+      const ey = e.y - this.enemyZ(e) / TILT;
       if (e.charge > 0 && e.chargeTower) {
-        const tw = e.chargeTower, k = 1 - e.charge / (e.def.shoot.charge || 1);
+        const tw = e.chargeTower, k = 1 - e.charge / (e.def.shoot.charge || 1), top = towerDims(tw.type, tw.tier).H;
         g.strokeStyle = rgba('#ff3d5a', 0.3 + k * 0.6); g.lineWidth = 1 + k * 3;
         g.setLineDash([8, 6]); g.lineDashOffset = -t * 60;
-        g.beginPath(); g.moveTo(e.x, e.y); g.lineTo(tw.x, tw.y); g.stroke(); g.setLineDash([]);
+        g.beginPath(); g.moveTo(e.x, ey); g.lineTo(tw.x, tw.y - top / TILT); g.stroke(); g.setLineDash([]);
         g.beginPath(); g.arc(tw.x, tw.y, 30 - k * 8, 0, 7); g.stroke();
         g.globalCompositeOperation = 'lighter';
-        this.glowAt(ci('#ff3d5a'), e.x, e.y, 40 + k * 60, 0.5 + k * 0.5);
+        this.glowAt(ci('#ff3d5a'), e.x, ey, 40 + k * 60, 0.5 + k * 0.5);
         g.globalCompositeOperation = 'source-over';
       }
-      g.strokeStyle = 'rgba(255,61,110,0.8)'; g.lineWidth = 3;
-      for (let i = 0; i < 3; i++) { const a = t * 1.5 + i * 2.094; g.beginPath(); g.arc(e.x, e.y, e.r * 0.78, a, a + 1.2); g.stroke(); }
+      if (e.def.jam && e.jamCd < 1.2) {
+        const k = 1 - e.jamCd / 1.2;
+        g.strokeStyle = rgba('#ffb02e', 0.2 + k * 0.7); g.lineWidth = 2 + k * 2;
+        g.beginPath(); g.arc(e.x, e.y, e.def.jam.range * TILE * k, 0, 7); g.stroke();
+      }
+      g.strokeStyle = rgba(e.def.color, 0.8); g.lineWidth = 3;
+      for (let i = 0; i < 3; i++) { const a = t * 1.5 + i * 2.094; g.beginPath(); g.arc(e.x, ey, e.r * 0.78, a, a + 1.2); g.stroke(); }
     }
-    // 3) Zustände (additiv)
     g.globalCompositeOperation = 'lighter';
     for (const e of E) {
-      if (!e.active || (e.cloaked && !e.revealed)) continue;
-      if (e.hit > 0) this.glowAt(0, e.x, e.y, e.r * 2.6, Math.min(1, e.hit * 6));
+      if (!vis(e)) continue;
+      const ey = e.y - this.enemyZ(e) / TILT;
+      if (e.hit > 0) this.glowAt(0, e.x, ey, e.r * 2.6, Math.min(1, e.hit * 6));
       if (e.shield > 0) {
         const f = e.shield / Math.max(1, e.maxShield);
         g.globalAlpha = Math.min(1, 0.35 + f * 0.35 + (e.shieldHit > 0 ? 0.3 : 0));
         g.strokeStyle = '#4fc3ff'; g.lineWidth = 2;
-        g.beginPath(); g.arc(e.x, e.y, e.r * 1.45, 0, 7); g.stroke();
+        g.beginPath(); g.arc(e.x, ey, e.r * 1.45, 0, 7); g.stroke();
         g.globalAlpha = 0.08 + f * 0.08; g.fillStyle = '#4fc3ff'; g.fill();
       }
-      if (e.slowT > 0 && e.slowAmt > 0) this.glowAt(ci('#7d7bff'), e.x, e.y + e.r * 0.6, e.r * 1.6, 0.45);
-      if (e.stunT > 0) { for (let i = 0; i < 3; i++) { const a = t * 6 + i * 2.1; this.glowAt(0, e.x + Math.cos(a) * e.r, e.y - e.r - 4 + Math.sin(a) * 3, 8, 0.9); } }
-      if (e.cloaked) { g.globalAlpha = 0.6; g.strokeStyle = '#c58bff'; g.lineWidth = 1.5; g.beginPath(); g.arc(e.x, e.y, e.r * 1.5, t, t + 4.5); g.stroke(); }
-      if (e.markT > 0) { g.globalAlpha = 0.6; g.strokeStyle = '#66ffcc'; g.lineWidth = 1; g.beginPath(); g.moveTo(e.x - e.r - 4, e.y); g.lineTo(e.x + e.r + 4, e.y); g.moveTo(e.x, e.y - e.r - 4); g.lineTo(e.x, e.y + e.r + 4); g.stroke(); }
+      if (e.slowT > 0 && e.slowAmt > 0) this.glowAt(ci('#7d7bff'), e.x, e.y, e.r * 1.8, 0.45);
+      if (e.stunT > 0) { for (let i = 0; i < 3; i++) { const a = t * 6 + i * 2.1; this.glowAt(0, e.x + Math.cos(a) * e.r, ey - e.r - 4 + Math.sin(a) * 3, 8, 0.9); } }
+      if (e.cloaked) { g.globalAlpha = 0.6; g.strokeStyle = '#c58bff'; g.lineWidth = 1.5; g.beginPath(); g.arc(e.x, ey, e.r * 1.5, t, t + 4.5); g.stroke(); }
+      if (e.markT > 0) { g.globalAlpha = 0.6; g.strokeStyle = '#66ffcc'; g.lineWidth = 1; g.beginPath(); g.moveTo(e.x - e.r - 4, ey); g.lineTo(e.x + e.r + 4, ey); g.moveTo(e.x, ey - e.r - 4); g.lineTo(e.x, ey + e.r + 4); g.stroke(); }
+      g.globalAlpha = 1;
     }
     g.globalAlpha = 1;
     g.globalCompositeOperation = 'source-over';
@@ -626,12 +725,12 @@ export class Renderer {
 
   drawHealthBars(game) {
     const g = this.ctx;
-    // Dauerhafte Lebensanzeige über allen sichtbaren Gegnern
+    this.uprightT();
     for (const e of game.enemies) {
       if (!e.active || (e.cloaked && !e.revealed)) continue;
-      const big = e.boss;
+      const big = e.def.boss;
       const w = big ? 84 : Math.max(16, e.r * 2), h = big ? 5 : 3;
-      const x = e.x - w / 2, y = e.y - e.r - (big ? 14 : 9);
+      const x = e.x - w / 2, y = e.y * TILT - this.enemyZ(e) - e.r * TILT - (big ? 16 : 10);
       g.fillStyle = e.elite ? '#ffd23e' : 'rgba(0,0,0,0.75)'; g.fillRect(x - 1, y - 1, w + 2, h + 2);
       g.fillStyle = 'rgba(10,12,18,0.95)'; g.fillRect(x, y, w, h);
       const f = Math.max(0, e.hp / e.maxHp);
@@ -641,11 +740,13 @@ export class Renderer {
     }
     for (const tw of game.towers) {
       if (tw.hp >= tw.maxHp && tw.offline <= 0) continue;
-      const x = tw.x - 20, y = tw.y - 30;
-      g.fillStyle = 'rgba(0,0,0,0.6)'; g.fillRect(x - 1, y - 1, 42, 5);
+      const H = towerDims(tw.type, tw.tier).H;
+      const x = tw.x - 18, y = tw.y * TILT - H - 24;
+      g.fillStyle = 'rgba(0,0,0,0.6)'; g.fillRect(x - 1, y - 1, 38, 5);
       g.fillStyle = tw.offline > 0 ? '#ff3d5a' : '#ffcf3a';
-      g.fillRect(x, y, 40 * (tw.offline > 0 ? 1 - tw.offline / 9 : tw.hp / tw.maxHp), 3);
+      g.fillRect(x, y, 36 * (tw.offline > 0 ? 1 - tw.offline / 9 : tw.hp / tw.maxHp), 3);
     }
+    this.resetWT();
   }
 
   drawHero(game, ui) {
@@ -679,12 +780,14 @@ export class Renderer {
     g.shadowBlur = 0;
     g.restore();
     // Balken + Stufe
-    const f = h.hp / h.maxHp;
-    g.fillStyle = 'rgba(0,0,0,0.6)'; g.fillRect(h.x - 18, h.y - 30, 36, 5);
-    g.fillStyle = '#5dffb0'; g.fillRect(h.x - 17, h.y - 29, 34 * f, 3);
-    g.fillStyle = '#ffd23e'; g.beginPath(); g.arc(h.x + 25, h.y - 27, 7, 0, 7); g.fill();
+    const f = h.hp / h.maxHp, hy = h.y * TILT;
+    this.uprightT();
+    g.fillStyle = 'rgba(0,0,0,0.6)'; g.fillRect(h.x - 18, hy - 26, 36, 5);
+    g.fillStyle = '#5dffb0'; g.fillRect(h.x - 17, hy - 25, 34 * f, 3);
+    g.fillStyle = '#ffd23e'; g.beginPath(); g.arc(h.x + 25, hy - 23, 7, 0, 7); g.fill();
     g.fillStyle = '#000'; g.font = 'bold 10px system-ui, sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle';
-    g.fillText(h.level, h.x + 25, h.y - 26.5); g.textBaseline = 'alphabetic';
+    g.fillText(h.level, h.x + 25, hy - 22.5); g.textBaseline = 'alphabetic';
+    this.resetWT();
   }
 
   drawBeams(game) {
@@ -694,14 +797,16 @@ export class Renderer {
       const col = tierColor(tw.type, tw.tier);
       for (const b of tw.beams) {
         const e = b.e;
-        const sx = tw.x + Math.cos(tw.angle) * 20, sy = tw.y + Math.sin(tw.angle) * 20;
+        const top = towerDims(tw.type, tw.tier).H + 4;
+        const sx = tw.x + Math.cos(tw.angle) * 18, sy = tw.y + Math.sin(tw.angle) * 18 - top / TILT;
         const r = b.ramp || 1;
         const flick = 0.85 + Math.sin(t * 40 + tw.id) * 0.15;
         g.strokeStyle = rgba(col, 0.25 * flick); g.lineWidth = 6 + r * 3; g.lineCap = 'round';
-        g.beginPath(); g.moveTo(sx, sy); g.lineTo(e.x, e.y); g.stroke();
+        const ey = e.y - this.enemyZ(e) / TILT;
+        g.beginPath(); g.moveTo(sx, sy); g.lineTo(e.x, ey); g.stroke();
         g.strokeStyle = rgba(mix(col, '#ffffff', 0.6), 0.9); g.lineWidth = 1.5 + r * 0.8;
-        g.beginPath(); g.moveTo(sx, sy); g.lineTo(e.x, e.y); g.stroke();
-        this.glowAt(ci(col), e.x, e.y, 22 + r * 8, 0.8);
+        g.beginPath(); g.moveTo(sx, sy); g.lineTo(e.x, ey); g.stroke();
+        this.glowAt(ci(col), e.x, ey, 22 + r * 8, 0.8);
         this.glowAt(ci(col), sx, sy, 18, 0.8);
       }
     }
@@ -710,22 +815,30 @@ export class Renderer {
   drawProjectiles(game) {
     const g = this.ctx;
     for (const p of game.projectiles) {
+      // Höhe: vom Turmkopf bis zum Ziel absinken
+      const tx = p.target && p.target.active ? p.target.x : p.tx, ty = p.target && p.target.active ? p.target.y : p.ty;
+      const z = (p.z0 || 0) * clamp(Math.hypot(tx - p.x, ty - p.y) / (p.d0 || 1), 0, 1);
+      const py = p.y - z / TILT;
       switch (p.kind) {
         case 'bolt': case 'drone': case 'hero': case 'cannon': {
           const len = p.kind === 'cannon' ? 16 : 11;
           g.strokeStyle = PAL[p.color]; g.lineWidth = p.kind === 'cannon' ? 3.5 : 2.5; g.lineCap = 'round'; g.globalAlpha = 0.9;
-          g.beginPath(); g.moveTo(p.x - Math.cos(p.ang) * len, p.y - Math.sin(p.ang) * len); g.lineTo(p.x, p.y); g.stroke();
-          this.glowAt(p.color, p.x, p.y, 16 * p.size, 0.9);
+          g.beginPath(); g.moveTo(p.x - Math.cos(p.ang) * len, py - Math.sin(p.ang) * len); g.lineTo(p.x, py); g.stroke();
+          this.glowAt(p.color, p.x, py, 16 * p.size, 0.9);
           break;
         }
         case 'missile': {
-          this.glowAt(p.color, p.x, p.y, 20, 0.9);
+          this.glowAt(p.color, p.x, py, 20, 0.9);
           g.globalAlpha = 1; g.strokeStyle = '#fff2c0'; g.lineWidth = 3;
-          g.beginPath(); g.moveTo(p.x - Math.cos(p.ang) * 6, p.y - Math.sin(p.ang) * 6); g.lineTo(p.x + Math.cos(p.ang) * 3, p.y + Math.sin(p.ang) * 3); g.stroke();
+          g.beginPath(); g.moveTo(p.x - Math.cos(p.ang) * 6, py - Math.sin(p.ang) * 6); g.lineTo(p.x + Math.cos(p.ang) * 3, py + Math.sin(p.ang) * 3); g.stroke();
           break;
         }
-        case 'ebolt': this.glowAt(p.color, p.x, p.y, 18 * p.size, 0.95); this.glowAt(0, p.x, p.y, 6 * p.size, 0.9); break;
+        case 'ebolt': this.glowAt(p.color, p.x, py, 18 * p.size, 0.95); this.glowAt(0, p.x, py, 6 * p.size, 0.9); break;
       }
+    }
+    for (const f of game.fireworks) {
+      if (!f.live) continue;
+      this.glowAt(f.color, f.x, f.y - f.z / TILT, 22, 1); this.glowAt(0, f.x, f.y - f.z / TILT, 7, 1);
     }
     g.globalAlpha = 1;
   }
@@ -738,8 +851,9 @@ export class Renderer {
       g.beginPath(); g.ellipse(p.x, p.y, 5, 3, 0, 0, 7); g.fill();
       g.globalCompositeOperation = 'lighter';
       const s = p.kind === 'shell' ? 26 : 16;
-      this.glowAt(p.color, p.x, p.y - p.h, s + p.h * 0.2, 1);
-      this.glowAt(0, p.x, p.y - p.h, s * 0.35, 1);
+      const z = (p.z0 || 0) * (1 - Math.min(1, p.t || 0)) + p.h;
+      this.glowAt(p.color, p.x, p.y - z / TILT, s + p.h * 0.2, 1);
+      this.glowAt(0, p.x, p.y - z / TILT, s * 0.35, 1);
       g.globalCompositeOperation = 'source-over';
     }
     g.globalAlpha = 1;
@@ -750,16 +864,18 @@ export class Renderer {
     for (const r of game.rails) {
       const f = r.life / r.max;
       g.strokeStyle = rgba(r.color, 0.35 * f); g.lineWidth = r.w * 3 * f + 1; g.lineCap = 'round';
-      g.beginPath(); g.moveTo(r.x1, r.y1); g.lineTo(r.x2, r.y2); g.stroke();
+      const y1 = r.y1 - (r.z1 || 0) / TILT;
+      g.beginPath(); g.moveTo(r.x1, y1); g.lineTo(r.x2, r.y2); g.stroke();
       g.strokeStyle = rgba('#ffffff', f); g.lineWidth = r.w * 0.6 * f + 0.5;
-      g.beginPath(); g.moveTo(r.x1, r.y1); g.lineTo(r.x2, r.y2); g.stroke();
+      g.beginPath(); g.moveTo(r.x1, y1); g.lineTo(r.x2, r.y2); g.stroke();
     }
     for (const b of game.bolts) {
       const f = b.life / b.max, p = b.pts;
       for (const [w, a, c] of [[7, 0.3, b.color], [2, 1, '#ffffff']]) {
         g.strokeStyle = rgba(c, a * f); g.lineWidth = w; g.lineJoin = 'round';
-        g.beginPath(); g.moveTo(p[0], p[1]);
-        for (let i = 2; i < p.length; i += 2) g.lineTo(p[i] + (Math.random() - 0.5) * 3, p[i + 1] + (Math.random() - 0.5) * 3);
+        const z0 = (b.z0 || 0) / TILT, n = p.length / 2;
+        g.beginPath(); g.moveTo(p[0], p[1] - z0);
+        for (let i = 2; i < p.length; i += 2) g.lineTo(p[i] + (Math.random() - 0.5) * 3, p[i + 1] - z0 * Math.max(0, 1 - i / 2 / 4) + (Math.random() - 0.5) * 3);
         g.stroke();
       }
     }
@@ -770,9 +886,10 @@ export class Renderer {
     }
     for (const fl of game.flashes) {
       const f = fl.life / fl.max;
-      this.glowAt(fl.color, fl.x, fl.y, 30 * fl.size * (0.6 + f), f);
+      const fy = fl.y - (fl.z || 0) / TILT;
+      this.glowAt(fl.color, fl.x, fy, 30 * fl.size * (0.6 + f), f);
       g.globalAlpha = f * 0.8; g.fillStyle = PAL[fl.color];
-      g.save(); g.translate(fl.x, fl.y); g.rotate(fl.ang);
+      g.save(); g.translate(fl.x, fy); g.rotate(fl.ang);
       g.beginPath(); g.moveTo(0, -3 * fl.size); g.lineTo(16 * fl.size, 0); g.lineTo(0, 3 * fl.size); g.closePath(); g.fill();
       g.restore();
     }
@@ -868,13 +985,17 @@ export class Renderer {
 
   drawTexts(game) {
     const g = this.ctx;
-    g.font = 'bold 13px system-ui, sans-serif'; g.textAlign = 'center';
+    this.uprightT();
+    g.textAlign = 'center';
     for (const tx of game.texts) {
+      g.font = tx.big ? '700 15px system-ui, sans-serif' : '600 12px system-ui, sans-serif';
+      const y = tx.y * TILT - (tx.z || 0);
       g.globalAlpha = Math.min(1, tx.life / tx.max * 2);
-      g.lineWidth = 3; g.strokeStyle = 'rgba(0,0,0,0.7)'; g.strokeText(tx.text, tx.x, tx.y);
-      g.fillStyle = tx.color; g.fillText(tx.text, tx.x, tx.y);
+      g.lineWidth = 3; g.strokeStyle = 'rgba(0,0,0,0.75)'; g.strokeText(tx.text, tx.x, y);
+      g.fillStyle = tx.color; g.fillText(tx.text, tx.x, y);
     }
     g.globalAlpha = 1;
+    this.resetWT();
   }
 
   drawEventOverlay(game, dt) {
@@ -912,6 +1033,34 @@ export class Renderer {
       this.storm = this.storm.filter(s => s.life > 0);
       g.globalCompositeOperation = 'source-over';
     }
+  }
+
+  // Wetter je Landschaft: Glut, Schnee, Kristallstaub, Sporen (reine Stimmung)
+  drawWeather(game, dt) {
+    const kind = game.map.def.biome || 'kristall';
+    const n = this.quality === 'hoch' ? 90 : 45;
+    const W = this.weather;
+    if (W.kind !== kind) { W.length = 0; W.kind = kind; }
+    while (W.length < n) W.push({ x: Math.random() * WORLD_W, y: Math.random() * WORLD_H, z: Math.random() * 90, p: Math.random() * 6.28, s: 0.6 + Math.random() * 0.8 });
+    const g = this.ctx, t = this.time;
+    const cfg = {
+      wueste: { col: ci('#ff9a3c'), vx: 8, vz: 22, size: 5, add: true },
+      eis: { col: ci('#ffffff'), vx: -14, vz: -26, size: 4, add: false },
+      kristall: { col: ci('#d18cff'), vx: 4, vz: 6, size: 5, add: true },
+      dschungel: { col: ci('#c4ff8a'), vx: 6, vz: 4, size: 5, add: true },
+    }[kind] || { col: 0, vx: 0, vz: 0, size: 3, add: true };
+    g.globalCompositeOperation = cfg.add ? 'lighter' : 'source-over';
+    const spr = glow(cfg.col);
+    for (const w of W) {
+      w.x += (cfg.vx + Math.sin(t + w.p) * 6) * dt * w.s; w.z += cfg.vz * dt * w.s;
+      if (w.z > 110) w.z = 0; if (w.z < 0) w.z = 110;
+      if (w.x < 0) w.x += WORLD_W; if (w.x > WORLD_W) w.x -= WORLD_W;
+      const a = kind === 'kristall' ? 0.4 + 0.4 * Math.sin(t * 4 + w.p) : 0.55;
+      g.globalAlpha = a * Math.min(1, w.z / 20, (110 - w.z) / 20);
+      const sz = cfg.size * w.s;
+      g.drawImage(spr, w.x - sz, w.y - w.z / TILT - sz, sz * 2, sz * 2);
+    }
+    g.globalAlpha = 1; g.globalCompositeOperation = 'source-over';
   }
 
   drawCursor(game, ui) {

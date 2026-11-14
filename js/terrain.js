@@ -110,7 +110,7 @@ function drawObstacle(g, o, B) {
 }
 
 // ---------------------------------------------------------------- Ganze Karte (in Weltkoordinaten)
-export function drawTerrain(g, map) {
+export function drawTerrain(g, map, opts = {}) {
   const B = map.biome;
   const rng = mulberry32(hashString('terrain-' + map.id));
   g.save();
@@ -193,8 +193,10 @@ export function drawTerrain(g, map) {
     }
   }
   // Hindernisse + große Pflanzen (von oben nach unten für korrekte Überdeckung)
-  const big = [...map.obstacles, ...map.deco.filter(d => d.block)].sort((a, b) => a.y - b.y);
-  for (const o of big) drawObstacle(g, o, B);
+  if (!opts.upright) {
+    const big = [...map.obstacles, ...map.deco.filter(d => d.block)].sort((a, b) => a.y - b.y);
+    for (const o of big) drawObstacle(g, o, B);
+  }
   // Station um den Kern
   if (map.smooth.length) drawStation(g, map.basePos.x, map.basePos.y, B);
   // Randabdunklung

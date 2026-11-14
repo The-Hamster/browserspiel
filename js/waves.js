@@ -38,6 +38,17 @@ export function makeRules(mode, opts = {}) {
       if (id === 'elite') { r.eliteMul = 2; r.eliteRewardMul = 1.3; }
     }
   }
+  r.repair = mode !== 'standard';
+  if (opts.mission) {
+    const m = opts.mission;
+    r.mission = m.id; r.totalWaves = m.waves; r.research = false; r.tutorial = m.id === 'm1';
+    if (m.allowed) r.banned = TOWER_ORDER.filter(t => !m.allowed.includes(t));
+    if (m.banned) r.banned = m.banned.slice();
+    if (m.eventEvery) r.eventEvery = m.eventEvery;
+    r.finalBoss = m.finalBoss || null;
+    r.radio = m.radio || null;
+    return r;
+  }
   if (opts.endless) r.totalWaves = Infinity;
   return r;
 }
@@ -73,9 +84,10 @@ export function makeWave(w, seed, rules, pathCount) {
   let budget = (8 + 6 * w + 0.22 * w * w) * rules.countMul;
   const groups = [];
   const isBoss = w % 10 === 0;
-  if (isBoss) {
+  if (isBoss || (rules.finalBoss && w === rules.totalWaves)) {
     const n = 1 + Math.floor((w - 10) / 30);
-    groups.push({ type: 'boss', count: n, spacing: 9, delay: 3 });
+    const bt = rules.finalBoss && w === rules.totalWaves ? rules.finalBoss : (w / 10) % 2 === 0 ? 'boss2' : 'boss';
+    groups.push({ type: bt, count: Math.max(1, n), spacing: 9, delay: 3 });
     budget *= 0.55;
   }
   const intro = Object.keys(ENEMY_UNLOCK).find(t => ENEMY_UNLOCK[t] === w && w > 1);
@@ -104,7 +116,7 @@ export function makeWave(w, seed, rules, pathCount) {
   let pathIdx = 0;
   for (const g of groups) {
     for (let i = 0; i < g.count; i++) {
-      const elite = g.type !== 'boss' && rng() < eliteChance;
+      const elite = !ENEMIES[g.type].boss && rng() < eliteChance;
       const path = pathCount > 1 ? (rng() < 0.5 ? pathIdx++ % pathCount : Math.floor(rng() * pathCount)) : 0;
       spawns.push({ t: g.delay + i * g.spacing, type: g.type, elite, path });
       const s = summary[g.type] || (summary[g.type] = { n: 0, elite: 0 });
@@ -119,5 +131,5 @@ export function makeWave(w, seed, rules, pathCount) {
     const hit = every ? (w % every === 0) : rng() < 0.32;
     if (hit) event = ['meteor', 'sand', 'storm'][Math.floor(rng() * 3)];
   }
-  return { w, groups, spawns, summary, isBoss, event, duration: spawns.length ? spawns[spawns.length - 1].t : 0 };
+  return { w, groups, spawns, summary, isBoss: isBoss || groups.some(g => ENEMIES[g.type].boss), event, duration: spawns.length ? spawns[spawns.length - 1].t : 0 };
 }

@@ -9,6 +9,8 @@
 <title>Kernwacht – Sci-Fi Tower Defense</title>
 <meta name="description" content="Verteidige die Forschungsstation Aurelis gegen Alien-Schwärme und Maschinenwesen. Ein Tower-Defense-Spiel direkt im Browser.">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Ccircle cx='32' cy='32' r='26' fill='%2305060d' stroke='%2336f1ff' stroke-width='4'/%3E%3Ccircle cx='32' cy='32' r='9' fill='%2336f1ff'/%3E%3C/svg%3E">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
 <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
@@ -16,23 +18,27 @@
 
 <div id="hud" class="hidden">
   <div id="topbar">
-    <button id="btnMenu" class="ib" title="Menü (Esc)" aria-label="Menü"></button>
-    <div class="stat credits" title="Credits – für Türme und Ausbau"><span class="lbl">Credits</span><b id="hCredits">0</b></div>
-    <div class="stat energy" title="Energie – für Spezialfähigkeiten"><span class="lbl">Energie</span><b id="hEnergy">0</b><div class="mini"><div id="hEnergyBar"></div></div></div>
-    <div class="stat hp" title="Lebenspunkte des Reaktorkerns"><span class="lbl">Kern</span><b id="hHp">100</b><div class="mini"><div id="hHpBar"></div><div id="hShBar"></div></div></div>
+    <button id="btnMenu" class="ib" data-tip="Menü|Pause-Menü öffnen.|Esc" aria-label="Menü"></button>
+    <div class="stat credits" data-tip="Credits|Bekommst du für Abschüsse. Damit baust du Türme und den Kern aus."><span class="lbl">Credits</span><b id="hCredits">0</b></div>
+    <div class="stat energy" data-tip="Energie|Lädt sich ständig auf. Wird für Spezialfähigkeiten gebraucht."><span class="lbl">Energie</span><b id="hEnergy">0</b><div class="mini"><div id="hEnergyBar"></div></div></div>
+    <div class="stat hp" data-tip="Reaktorkern|Lebenspunkte des Kerns. Bei null ist das Spiel verloren."><span class="lbl">Kern</span><b id="hHp">100</b><div class="mini"><div id="hHpBar"></div><div id="hShBar"></div></div></div>
     <div class="stat wave"><span class="lbl" id="hCountdown">bereit</span><b id="hWave">Welle 0</b></div>
-    <div id="preview" class="preview" title="Nächste Welle"></div>
+    <div id="preview" class="preview"></div>
     <div class="grow"></div>
     <span id="hDiff" class="chip"></span>
-    <button id="btnNext" class="next" title="Nächste Welle starten (N)"><span id="nextLabel">Welle starten</span></button>
-    <div class="seg speedseg" id="speedSeg" title="Spielgeschwindigkeit (F)"><button data-s="1" class="on">1x</button><button data-s="2">2x</button><button data-s="3">3x</button></div>
-    <button id="btnPause" class="ib" title="Pause (Leertaste)" aria-label="Pause"></button>
-    <button id="btnMute" class="ib" title="Ton an/aus (M)" aria-label="Ton"></button>
+    <button id="btnNext" class="next" data-tip="Nächste Welle|Startet die nächste Welle. Früher starten bringt Bonus-Credits.|N"><span id="nextLabel">Welle starten</span></button>
+    <div class="seg speedseg" id="speedSeg" data-tip="Tempo|Spielgeschwindigkeit 1x, 2x oder 3x.|F"><button data-s="1" class="on">1x</button><button data-s="2">2x</button><button data-s="3">3x</button></div>
+    <button id="btnZoom" class="ib hidden" data-tip="Ansicht zurücksetzen|Zoom zurück auf die ganze Karte.|0" aria-label="Zoom zurücksetzen"></button>
+    <button id="btnRanges" class="ib" data-tip="Reichweiten|Zeigt die Reichweite aller Türme.|G" aria-label="Reichweiten"></button>
+    <button id="btnPause" class="ib" data-tip="Pause|Hält das Spiel an.|Leertaste" aria-label="Pause"></button>
+    <button id="btnMute" class="ib" data-tip="Ton|Ton an oder aus.|M" aria-label="Ton"></button>
+    <button id="btnFull" class="ib" data-tip="Vollbild|Spiel im Vollbild anzeigen.|F11" aria-label="Vollbild"></button>
   </div>
+  <div id="leftdock"><div id="abilbar"></div></div>
   <div id="bottombar">
-    <div id="abilbar" class="grp"></div>
-    <div class="vsep"></div>
+    <div id="herobar" class="grp"></div>
     <div id="buildbar" class="grp"></div>
+    <div id="undoChip" class="hidden"></div>
   </div>
   <div id="buildinfo" class="hidden"></div>
   <div id="panel" class="hidden"></div>
@@ -43,6 +49,9 @@
 </div>
 
 <div id="toasts"></div>
+<div id="tooltip" class="hidden"></div>
+<div id="radio" class="hidden"></div>
+<div id="lexcard" class="hidden"></div>
 <div id="announce"></div>
 <div id="tip" class="hidden"></div>
 
@@ -56,6 +65,9 @@
 <section id="scrEnd" class="screen dim"></section>
 <section id="scrConfirm" class="screen dim"></section>
 <section id="scrEditor" class="screen editor"></section>
+<section id="scrCampaign" class="screen"></section>
+<section id="scrLexikon" class="screen"></section>
+<section id="scrRank" class="screen"></section>
 
 <div id="rotate"><div><div class="rot-ico"></div><p>Bitte drehe dein Gerät ins Querformat.</p></div></div>
 

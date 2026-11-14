@@ -1,5 +1,7 @@
 # KERNWACHT
 
+**Version 1.0.3**
+
 **Ein Sci-Fi-Tower-Defense-Spiel, das direkt im Browser läuft.**
 
 Die Forschungsstation *Aurelis* auf dem fremden Planeten *Veyra IV* wird von Alien-Schwärmen und Maschinenwesen angegriffen. Du baust Verteidigungstürme entlang der Angriffswege und schützt den Reaktorkern – das Herz der Station. Erreichen zu viele Gegner den Kern, ist das Spiel verloren.
@@ -19,6 +21,22 @@ python3 -m http.server 8000
 Danach im Browser `http://localhost:8000` öffnen.
 
 Läuft am PC (Maus und Tastatur) und am Handy oder Tablet (Touch, im Querformat).
+
+## Neu in Version 1.0.3
+
+- Leicht schräge 3D-Ansicht: Türme, Felsen, Kristalle und der Reaktor stehen aufrecht und werfen Schatten.
+- Jede Turmart hat eine eigene Bauform und Höhe (vom flachen Bunker bis zum hohen Radarmast).
+- Türme unten mittig, Spezialfähigkeiten als Notfallknöpfe links, offene Leisten oben und unten.
+- Spiel-Kärtchen beim Drüberfahren mit der Maus (Türme, Fähigkeiten, Gegner-Vorschau).
+- Reparaturdrohnen nur im Advance-Modus.
+- Reichweiten aller Türme auf Knopfdruck, Abdeckungs-Anzeige beim Bauen, Rückgängig nach dem Bauen.
+- Zoomen (Mausrad, zwei Finger, + / −) und Verschieben (rechte Maustaste oder Ziehen).
+- Feuerwerk vom besten Turm nach jeder Welle, mit Abschüssen und Schaden.
+- Gegner-Lexikon, Turm-Erfahrung (Veteran, Elite, Legende) und vier Kombi-Effekte.
+- **Kampagne** mit 8 Missionen und Funksprüchen, zweiter Boss **Maschinenkoloss** mit Störimpuls.
+- Wetter je Karte (Glut, Schnee, Kristallstaub, Sporen).
+- Vollbild-Knopf, als App installierbar (offline spielbar), Ergebnis teilen.
+- **Rangliste** mit kleinem Server-Programm für den eigenen Server.
 
 ## So funktioniert's
 
@@ -65,6 +83,10 @@ Schwärmer (viele, schwach) · Belagerer (gepanzert, beschießt Türme) · Schil
 | H, dann Klick | Kommandant auswählen und bewegen |
 | Y / X | Fähigkeiten des Kommandanten |
 | M | Ton an/aus |
+| G | Reichweiten aller Türme |
+| Mausrad / + / − / 0 | Zoomen / zurücksetzen |
+| Rechte Maustaste ziehen | Ansicht verschieben |
+| F11 | Vollbild |
 | Esc | Pause-Menü |
 
 Am Handy wird alles angetippt; die Knöpfe sind dafür groß genug.
@@ -93,6 +115,32 @@ Vor jeder Partie wählst du **Leicht · Mittel · Schwer · Experte**. Je höher
 **Erfolge:** 20 Erfolge zum Freischalten.
 
 Rekorde, Forschung, Erfolge, eigene Karten, Einstellungen und der laufende Spielstand (zwischen den Wellen) werden im Browser gespeichert.
+
+## Rangliste auf dem eigenen Server
+
+Das Spiel trägt Ergebnisse automatisch ein, sobald in der Rangliste ein Spielername gesetzt ist. Dafür liegt ein kleines Server-Programm bei (braucht nur Node.js 18 oder neuer, keine Zusatzpakete):
+
+```bash
+node server/rangliste-server.js
+```
+
+Es liefert das Spiel und die Rangliste zusammen unter `http://localhost:8080` aus (Port mit `PORT=…` änderbar). Die Ergebnisse landen in `server/daten/rangliste.json`.
+
+Läuft das Spiel woanders (zum Beispiel im Portal), zeigt die Rangliste standardmäßig auf `api/rangliste` neben dem Spiel. Eine andere Adresse lässt sich vor dem Spiel-Skript setzen:
+
+```html
+<script>window.KERNWACHT_API = 'https://mein-server.de/api/rangliste';</script>
+```
+
+Ist kein Server erreichbar, zeigt die Rangliste die eigenen besten Ergebnisse auf dem Gerät.
+
+## Einbinden ins Portal (Vollbild)
+
+Wird das Spiel in einem `<iframe>` eingebunden, braucht der Rahmen die Erlaubnis für Vollbild:
+
+```html
+<iframe src="https://…/kernwacht/" allow="fullscreen; autoplay" style="width:100%;height:100%;border:0"></iframe>
+```
 
 ## Grafik
 

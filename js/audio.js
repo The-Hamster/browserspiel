@@ -70,7 +70,7 @@ class Sfx {
   play(name, pan = 0, strength = 1) {
     if (!this.ctx || this.muted || this.volume <= 0) return;
     const now = performance.now();
-    const minGap = { laser: 45, drone: 60, hit: 40, bolt: 50, tesla: 70, plasma: 70, missile: 80, emp: 90, rail: 60, explode: 45, ebolt: 120, cannon: 90 }[name] || 25;
+    const minGap = { pop: 60, firework: 80, laser: 45, drone: 60, hit: 40, bolt: 50, tesla: 70, plasma: 70, missile: 80, emp: 90, rail: 60, explode: 45, ebolt: 120, cannon: 90 }[name] || 25;
     if (this.last[name] && now - this.last[name] < minGap) return;
     this.last[name] = now;
     const v = strength;
@@ -115,6 +115,8 @@ class Sfx {
       case 'achieve': [784, 988, 1175, 1568].forEach((f, i) => this.tone('sine', f, f, 0.25, 0.07, 0, i * 0.09)); break;
       case 'victory': [523, 659, 784, 1046, 784, 1046, 1318].forEach((f, i) => this.tone('triangle', f, f, 0.3, 0.09, 0, i * 0.14)); break;
       case 'defeat': [392, 330, 262, 196, 131].forEach((f, i) => this.tone('sawtooth', f, f * 0.98, 0.45, 0.07, 0, i * 0.22)); break;
+      case 'firework': this.tone('sine', 400, 1600, 0.5, 0.03, pan); this.noiseBurst('highpass', 3000, 6000, 0.4, 0.02, pan); break;
+      case 'pop': this.noiseBurst('lowpass', 3000, 300, 0.35, 0.14, pan); for (let i = 0; i < 4; i++) this.noiseBurst('highpass', 5000, 3000, 0.05, 0.03, pan, 1, 0.08 + i * 0.07); break;
       case 'cloak': this.tone('sine', 300, 1200, 0.2, 0.03, pan); break;
     }
   }
