@@ -1,6 +1,6 @@
 # KERNWACHT
 
-**Version 1.0.4**
+**Version 1.0.5**
 
 **Ein Sci-Fi-Tower-Defense-Spiel, das direkt im Browser läuft.**
 
@@ -21,6 +21,15 @@ python3 -m http.server 8000
 Danach im Browser `http://localhost:8000` öffnen.
 
 Läuft am PC (Maus und Tastatur) und am Handy oder Tablet (Touch, im Querformat).
+
+## Neu in Version 1.0.5
+
+- Runde, moderne Türme: abgerundete Formen, weiche Glanzlichter, Kuppeldächer, Fußwulst, Lichtbänder entlang der Rundung, runde Geschützköpfe und Glaslinsen.
+- Das Spiel füllt den ganzen Bildschirm: Leisten und Knöpfe liegen über der Karte, die Karte lässt sich unter den Leisten hervorziehen.
+- Größere Karten (20 × 14 Felder) mit längeren Wegen.
+- Zwei neue Karten: **Aschenserpentine** (Aschewüste, der längste Weg) und **Nebelsumpf** – mit zwei neuen Landschaften für den Editor.
+- Flieger folgen grob dem Weg mit Abkürzungen, statt quer über die Karte zu fliegen.
+- Auf Karten mit langen Wegen bleibt mehr Zeit zwischen den Wellen.
 
 ## Neu in Version 1.0.4
 
@@ -114,7 +123,7 @@ Vor jeder Partie wählst du **Leicht · Mittel · Schwer · Experte**. Je höher
 
 **Tägliche Herausforderung:** Jeden Tag eine feste Karte, zwei Sonderregeln und dieselben Wellen für alle (20 Wellen auf „Mittel“ mit Kommandant und Ereignissen, ohne Forschungs-Boni).
 
-**Karten-Editor:** Weg mit runden Kurven, Startpunkt, Landschaft (Glutwüste, Frostebene, Kristallfeld, Giftdschungel) und Hindernisse selbst setzen, speichern und in beiden Modi spielen.
+**Karten-Editor:** Weg mit runden Kurven, Startpunkt, Landschaft (Glutwüste, Frostebene, Kristallfeld, Giftdschungel, Aschewüste, Nebelsumpf) und Hindernisse selbst setzen, speichern und in beiden Modi spielen.
 
 **Erfolge:** 20 Erfolge zum Freischalten.
 

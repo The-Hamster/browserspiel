@@ -133,12 +133,12 @@ export class UI {
   playRect() {
     const W = window.innerWidth, H = window.innerHeight;
     if (this.mode === 'game') {
-      const top = this.$('topbar').getBoundingClientRect().top + this.$('topbar').offsetHeight - 14;
-      const bottom = this.$('bottombar').getBoundingClientRect().top + 14;
+      this.r.fit = 'cover';
       const dock = this.$('leftdock').getBoundingClientRect();
-      const left = dock.width ? dock.right + 8 : 6;
-      return { x: left, y: top + 2, w: W - left - Math.min(left, 30), h: bottom - top - 4 };
+      this.r.pad = { t: this.$('topbar').offsetHeight - 10, b: this.$('bottombar').offsetHeight - 6, l: dock.width ? dock.right + 4 : 0, r: 0 };
+      return { x: 0, y: 0, w: W, h: H };
     }
+    this.r.fit = 'contain';
     if (this.mode === 'editor') {
       const tool = document.querySelector('#scrEditor .etool');
       const left = tool ? tool.getBoundingClientRect().right : 0;
@@ -367,6 +367,7 @@ export class UI {
     p.className = '';
     const inner = el('div', 'scroll');
     p.appendChild(inner);
+    if (window.innerHeight < 520) this.$('tip').classList.add('hidden');
     if (sel.kind === 'tower') this.towerPanel(inner, sel.tower);
     else { p.classList.add('wide'); this.basePanel(inner); }
     this.placePanel();
@@ -515,7 +516,7 @@ export class UI {
       this.updateMouse(e);
       if (down) {
         const moved = Math.hypot(e.clientX - down.x, e.clientY - down.y);
-        if (!down.pan && moved > 10 && (this.r.zoom > 1.01 || down.btn === 1 || down.btn === 2)) down.pan = true;
+        if (!down.pan && moved > 12 && !this.buildType && (this.r.canPan() || down.btn === 1 || down.btn === 2)) down.pan = true;
         if (down.pan) { this.r.panBy(e.clientX - down.lx, e.clientY - down.ly); this.placePanel(); }
         down.lx = e.clientX; down.ly = e.clientY;
       }

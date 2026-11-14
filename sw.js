@@ -1,5 +1,5 @@
 // Offline-Speicher für Kernwacht (App-Modus)
-const CACHE = 'kernwacht-1.0.4';
+const CACHE = 'kernwacht-1.0.5';
 const FILES = [
   './', './index.html', './css/style.css', './manifest.webmanifest', './icons/icon-192.png', './icons/icon-512.png',
   './js/main.js', './js/util.js', './js/data.js', './js/storage.js', './js/waves.js', './js/audio.js', './js/particles.js',

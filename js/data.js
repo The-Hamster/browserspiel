@@ -1,15 +1,15 @@
 // Spieldaten: Türme, Gegner, Karten, Basis-Ausbau, Fähigkeiten, Forschung, Erfolge
 
 export const TILE = 64;
-export const COLS = 18;
-export const ROWS = 10;
+export const COLS = 20;
+export const ROWS = 14;
 export const WORLD_W = COLS * TILE;
 export const WORLD_H = ROWS * TILE;
 // Neigung der Kamera: Boden wird gestaucht, Gebäude stehen aufrecht (leichte Seitenansicht)
 export const TILT = 0.78;
 
 export const GAME_TITLE = 'KERNWACHT';
-export const VERSION = '1.0.4';
+export const VERSION = '1.0.5';
 
 // ---------------------------------------------------------------- Türme
 // Stufe '1' → '2' → Variante 'a' | 'b' | ('c' per Forschung). Werte vererben sich.
@@ -290,47 +290,63 @@ export const BIOMES = {
   wueste:    { name: 'Glutwüste',     ground: '#3b2217', ground2: '#5b3622', dark: '#1f110a', road: '#8c6446', roadEdge: '#4a2e1d', water: '#ff5a1e', water2: '#ffb347', waterGlow: true,  accent: '#ff8a4a', lane: '#ffb15a', rock: '#6e4632', crystal: '#ffae4a', plant: '#b85c2a', plant2: '#e08a3a' },
   eis:       { name: 'Frostebene',    ground: '#24323f', ground2: '#3d5566', dark: '#141c25', road: '#9fb2bf', roadEdge: '#4f6272', water: '#7fd8ff', water2: '#e6fbff', waterGlow: false, accent: '#46e0ff', lane: '#9cf3ff', rock: '#5b6b7b', crystal: '#9ff6ff', plant: '#7aa6bf', plant2: '#d8f2ff' },
   kristall:  { name: 'Kristallfeld',  ground: '#1f1734', ground2: '#35275a', dark: '#100b1e', road: '#5e5175', roadEdge: '#2b2142', water: '#b04aff', water2: '#f0b8ff', waterGlow: true,  accent: '#b98aff', lane: '#d8bcff', rock: '#463a62', crystal: '#d18cff', plant: '#7a4ab8', plant2: '#ff7ad8' },
+  asche:     { name: 'Aschewüste',    ground: '#27221f', ground2: '#3b342f', dark: '#120f0d', road: '#5d5550', roadEdge: '#2a2420', water: '#ff4a1a', water2: '#ffc24a', waterGlow: true,  accent: '#ff6a3a', lane: '#ffa070', rock: '#4c4642', crystal: '#ff7a4a', plant: '#6a3a2a', plant2: '#d0682a' },
+  sumpf:     { name: 'Nebelsumpf',    ground: '#14231f', ground2: '#213f38', dark: '#091311', road: '#5c6b5c', roadEdge: '#29332b', water: '#2fe6c0', water2: '#c4fff0', waterGlow: true,  accent: '#3affd0', lane: '#a0ffe8', rock: '#3b4b47', crystal: '#5affe0', plant: '#2a6a5a', plant2: '#7affd0' },
   dschungel: { name: 'Giftdschungel', ground: '#18291a', ground2: '#2b4627', dark: '#0b150b', road: '#6e5d3c', roadEdge: '#352c1b', water: '#6aff3a', water2: '#d8ff9a', waterGlow: true,  accent: '#7dff6a', lane: '#c4ff8a', rock: '#3d4a36', crystal: '#7dffa8', plant: '#2f6e2a', plant2: '#6fbf3a' },
 };
-export const BIOME_ORDER = ['wueste', 'eis', 'kristall', 'dschungel'];
+export const BIOME_ORDER = ['wueste', 'eis', 'kristall', 'dschungel', 'asche', 'sumpf'];
 
 // ---------------------------------------------------------------- Karten
 // Wegpunkte in Feld-Einheiten (frei, auch Kommazahlen). Ecken werden automatisch rund.
 // water: Flüsse/Seen, obstacles: Hindernisse (x, y, Radius, Art). Gebaut wird frei überall, wo Platz ist.
 export const MAPS = [
   {
-    id: 'krater', name: 'Kraterpass', biome: 'wueste', desc: 'Ein gewundener Weg durch den Glutkrater. Ideal zum Einstieg.',
-    paths: [[[-1.2, 2.2], [2.5, 2.2], [4, 3.2], [4.3, 6.2], [5.6, 7.8], [8, 7.9], [9.3, 6.6], [9.2, 3.6], [10.6, 2.0], [13.2, 2.1], [14.6, 3.4], [15, 6.6]]],
-    base: [15, 6.6],
-    water: [{ pts: [[10.8, 10.8], [11.6, 9.2], [13.4, 8.7], [15.8, 9.3], [18.8, 8.8]], w: 0.85 }],
-    obstacles: [[6.6, 4.6, 0.65, 'rock'], [1.3, 6.4, 0.6, 'rock'], [12, 5.2, 0.55, 'crystal']],
+    id: 'krater', v: 3, name: 'Kraterpass', biome: 'wueste', desc: 'Ein langer, gewundener Weg durch den Glutkrater. Ideal zum Einstieg.',
+    paths: [[[-1.2, 2.5], [3, 2.5], [4.5, 4], [4.6, 9.5], [6, 11.2], [8.5, 11.3], [10, 9.8], [10, 5], [11.5, 3], [14, 2.8], [15.8, 4.2], [16, 8], [17.2, 10.2]]],
+    base: [17.2, 10.2],
+    water: [{ pts: [[10.5, 14.8], [12, 13.1], [14.5, 12.8], [17, 13.4], [20.8, 12.9]], w: 0.9 }],
+    obstacles: [[7.3, 6.5, 0.7, 'rock'], [1.6, 8, 0.6, 'rock'], [13, 6.5, 0.55, 'crystal'], [7.5, 2, 0.5, 'crystal']],
   },
   {
-    id: 'zwilling', name: 'Zwillingsschlucht', biome: 'eis', desc: 'Zwei Angriffswege über die Frostebene, die sich vor dem Kern vereinen.',
+    id: 'zwilling', v: 3, name: 'Zwillingsschlucht', biome: 'eis', desc: 'Zwei Angriffswege über die Frostebene, die sich vor dem Kern vereinen.',
     paths: [
-      [[-1.2, 1.5], [3, 1.5], [5.2, 2.4], [6.6, 4.2], [8.6, 5.2], [15.2, 5.2]],
-      [[-1.2, 8.6], [3.5, 8.6], [6.2, 7.8], [7.8, 6.2], [9.4, 5.3], [11, 5.2], [15.2, 5.2]],
+      [[-1.2, 2], [3.5, 2], [6, 3.2], [7.5, 5.6], [9.8, 7], [17, 7]],
+      [[-1.2, 12], [4, 12], [7, 11], [8.8, 8.6], [10.5, 7.2], [12.5, 7], [17, 7]],
     ],
-    base: [15.2, 5.2],
-    water: [{ pts: [[3.2, -0.8], [2.6, 2.8], [1.2, 4.8], [-0.8, 5.8]], w: 0.8 }],
-    obstacles: [[11.2, 2.6, 0.6, 'crystal'], [12.6, 8, 0.7, 'rock'], [4.6, 5.2, 0.55, 'tree']],
+    base: [17, 7],
+    water: [{ pts: [[3.6, -0.8], [3, 3.8], [1.4, 6.4], [-0.8, 7.4]], w: 0.85 }],
+    obstacles: [[12.5, 3.5, 0.6, 'crystal'], [14, 11, 0.7, 'rock'], [5.2, 7.2, 0.55, 'tree']],
   },
   {
-    id: 'spirale', name: 'Spiralkern', biome: 'kristall', desc: 'Ein langer Spiralweg ins Zentrum. Lange Wege, wenig Platz.',
-    paths: [[[18.8, 1.2], [1.3, 1.2], [1.3, 8.6], [16.6, 8.6], [16.6, 3.4], [4.1, 3.4], [4.1, 6.3], [11.4, 6.3]]],
-    base: [11.4, 6.3],
+    id: 'spirale', v: 3, name: 'Spiralkern', biome: 'kristall', desc: 'Ein langer Spiralweg ins Zentrum. Lange Wege, wenig Platz.',
+    paths: [[[20.8, 1.3], [1.4, 1.3], [1.4, 12.6], [18.4, 12.6], [18.4, 4.2], [4.6, 4.2], [4.6, 9.6], [14.8, 9.6], [14.8, 7.2], [11.8, 7.2]]],
+    base: [11.8, 7.2],
     water: [],
-    obstacles: [[8, 5.1, 0.45, 'crystal'], [14.2, 6.1, 0.5, 'crystal']],
+    obstacles: [[7.6, 6.6, 0.5, 'crystal'], [16.6, 8.2, 0.5, 'crystal']],
   },
   {
-    id: 'gabel', name: 'Toxische Gabelung', biome: 'dschungel', desc: 'Der Weg teilt sich um einen Giftsee – die Gegner wählen zufällig eine Route.',
+    id: 'gabel', v: 3, name: 'Toxische Gabelung', biome: 'dschungel', desc: 'Der Weg teilt sich um einen Giftsee – die Gegner wählen zufällig eine Route.',
     paths: [
-      [[-1.2, 5], [2.2, 5], [3.6, 2.6], [6, 1.3], [10, 1.3], [12.4, 2.4], [13.6, 4.4], [16.2, 5]],
-      [[-1.2, 5], [2.2, 5], [3.6, 7.4], [6, 8.7], [10, 8.7], [12.4, 7.6], [13.6, 5.6], [16.2, 5]],
+      [[-1.2, 7], [2.4, 7], [4, 3.8], [7, 2], [12, 2], [15, 3.2], [16.4, 6.2], [18, 7]],
+      [[-1.2, 7], [2.4, 7], [4, 10.2], [7, 12], [12, 12], [15, 10.8], [16.4, 7.8], [18, 7]],
     ],
-    base: [16.2, 5],
-    water: [{ pts: [[5.9, 4.7], [8, 5.4], [10.3, 4.8]], w: 1.6 }],
-    obstacles: [[1.2, 2.2, 0.7, 'tree'], [1.4, 8, 0.7, 'tree'], [15.6, 1.6, 0.6, 'tree'], [15.4, 8.4, 0.65, 'tree']],
+    base: [18, 7],
+    water: [{ pts: [[6.6, 6.6], [9.5, 7.6], [12.6, 6.8]], w: 1.8 }],
+    obstacles: [[1.3, 2.5, 0.7, 'tree'], [1.5, 11.5, 0.7, 'tree'], [18.4, 2, 0.6, 'tree'], [18.2, 12, 0.65, 'tree']],
+  },
+  {
+    id: 'serpentine', v: 3, name: 'Aschenserpentine', biome: 'asche', desc: 'Der längste Weg: vier Bahnen in Schlangenlinien quer durch die Aschewüste.',
+    paths: [[[-1.2, 1.5], [17.5, 1.5], [18.6, 2.5], [18.6, 3.9], [17.5, 4.9], [2.5, 4.9], [1.4, 5.9], [1.4, 7.3], [2.5, 8.3], [17.5, 8.3], [18.6, 9.3], [18.6, 10.7], [17.5, 11.7], [6.2, 11.7]]],
+    base: [6.2, 11.7],
+    water: [{ pts: [[-0.8, 10.6], [1.8, 11.3], [3, 14.8]], w: 0.8 }],
+    obstacles: [[9, 3.2, 0.5, 'rock'], [14, 6.6, 0.55, 'crystal'], [5.5, 6.6, 0.5, 'rock'], [11.5, 10, 0.5, 'crystal']],
+  },
+  {
+    id: 'sumpf', v: 3, name: 'Nebelsumpf', biome: 'sumpf', desc: 'Ein langer Weg in Schleifen um leuchtende Sumpftümpel – mit dichtem Nebel.',
+    paths: [[[-1.2, 11.5], [3, 11.5], [4, 10], [4, 3], [5.5, 1.6], [9, 1.6], [10.5, 3], [10.5, 10.5], [12, 12], [15.5, 12], [17, 10.5], [17, 4.5], [15.6, 3.2], [13.8, 4.2], [13.8, 8.2]]],
+    base: [13.8, 8.2],
+    water: [{ pts: [[6.4, 5.6], [8, 7.4], [7, 9.6]], w: 1.4 }, { pts: [[18.6, 0.6], [19.4, 2], [20.8, 2.4]], w: 0.9 }],
+    obstacles: [[1.5, 6, 0.65, 'tree'], [7.3, 12.3, 0.6, 'tree'], [12.2, 6.2, 0.5, 'crystal'], [19, 13, 0.6, 'tree']],
   },
 ];
 

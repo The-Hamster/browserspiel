@@ -114,7 +114,7 @@ export function drawTerrain(g, map, opts = {}) {
   const B = map.biome;
   const rng = mulberry32(hashString('terrain-' + map.id));
   g.save();
-  roundRect(g, 0, 0, WORLD_W, WORLD_H, 22); g.clip();
+  g.beginPath(); g.rect(0, 0, WORLD_W, WORLD_H); g.clip();
   // Boden
   g.fillStyle = B.ground; g.fillRect(0, 0, WORLD_W, WORLD_H);
   for (let i = 0; i < 46; i++) {
@@ -207,8 +207,7 @@ export function drawTerrain(g, map, opts = {}) {
   hg.addColorStop(0, 'rgba(0,0,0,0.25)'); hg.addColorStop(0.08, 'rgba(0,0,0,0)'); hg.addColorStop(0.92, 'rgba(0,0,0,0)'); hg.addColorStop(1, 'rgba(0,0,0,0.25)');
   g.fillStyle = hg; g.fillRect(0, 0, WORLD_W, WORLD_H);
   g.restore();
-  g.strokeStyle = rgba(B.accent, 0.3); g.lineWidth = 1.5;
-  roundRect(g, 0.75, 0.75, WORLD_W - 1.5, WORLD_H - 1.5, 22); g.stroke();
+
 }
 
 function drawStation(g, x, y, B) {

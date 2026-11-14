@@ -345,6 +345,7 @@ svg { display: block; }
   #abilbar .ab { --ab: 46px; }
   #abilbar .ab svg { width: 20px; height: 20px; }
   #herobar { bottom: 5px; }
+  #undoChip { left: 70px; transform: none; bottom: calc(var(--bottom) + 10px); }
   #lexcard { width: 210px; top: auto; bottom: calc(var(--bottom) + 16px); padding: 8px; font-size: 11px; }
   #lexcard img { width: 30px; height: 30px; }
   #lexcard h4 { font-size: 12px; }

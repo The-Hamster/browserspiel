@@ -104,7 +104,7 @@ export function drawEnemyShape(g, type, r, col, elite, res = 1, frame = 0) {
         for (let i = 0; i < 9; i++) { const x = -r * 1.0 + ((i * r * 0.25 + frame * r * 0.125) % (r * 2.05)); g.fillRect(x, y0 + 1, r * 0.1, r * 0.43); }
       }
       g.fillStyle = shade(g, -r, -r * 0.6, r, r * 0.6, mix(col, '#2a2f38', 0.55));
-      roundRect(g, -r * 0.92, -r * 0.6, r * 1.84, r * 1.2, r * 0.22); g.fill();
+      roundRect(g, -r * 0.92, -r * 0.6, r * 1.84, r * 1.2, r * 0.45); g.fill();
       g.strokeStyle = rgba('#000000', 0.5); g.stroke();
       g.strokeStyle = rgba(col, 0.8); g.lineWidth = lw * 0.8; g.beginPath(); g.moveTo(-r * 0.8, -r * 0.45); g.lineTo(r * 0.6, -r * 0.45); g.moveTo(-r * 0.8, r * 0.45); g.lineTo(r * 0.6, r * 0.45); g.stroke();
       g.fillStyle = rshade(g, -r * 0.05, 0, r * 0.48, mix(col, '#333a44', 0.4)); g.beginPath(); g.arc(-r * 0.05, 0, r * 0.46, 0, 7); g.fill();
@@ -154,9 +154,10 @@ export function drawEnemyShape(g, type, r, col, elite, res = 1, frame = 0) {
     case 'boss': {
       // großes Schiff
       g.fillStyle = shade(g, -r, -r, r, r, '#3a2430', 0.5);
+      const hull = [[1.15, 0], [0.55, -0.45], [0.1, -1.05], [-0.55, -0.95], [-0.95, -0.5], [-0.8, 0], [-0.95, 0.5], [-0.55, 0.95], [0.1, 1.05], [0.55, 0.45]].map(([x, y]) => [x * r, y * r]);
       g.beginPath();
-      g.moveTo(r * 1.15, 0); g.lineTo(r * 0.55, -r * 0.45); g.lineTo(r * 0.1, -r * 1.05); g.lineTo(-r * 0.55, -r * 0.95); g.lineTo(-r * 0.95, -r * 0.5);
-      g.lineTo(-r * 0.8, 0); g.lineTo(-r * 0.95, r * 0.5); g.lineTo(-r * 0.55, r * 0.95); g.lineTo(r * 0.1, r * 1.05); g.lineTo(r * 0.55, r * 0.45); g.closePath(); g.fill();
+      for (let i = 0; i <= hull.length; i++) { const p = hull[i % hull.length], q = hull[(i + 1) % hull.length], mx = (p[0] + q[0]) / 2, my = (p[1] + q[1]) / 2; if (i === 0) g.moveTo(mx, my); else g.quadraticCurveTo(p[0], p[1], mx, my); }
+      g.closePath(); g.fill();
       g.strokeStyle = rgba(col, 0.9); g.lineWidth = lw * 0.8; g.stroke();
       g.strokeStyle = rgba('#000000', 0.45); g.lineWidth = 1.2;
       g.beginPath(); g.moveTo(-r * 0.6, -r * 0.6); g.lineTo(r * 0.4, -r * 0.3); g.moveTo(-r * 0.6, r * 0.6); g.lineTo(r * 0.4, r * 0.3); g.moveTo(-r * 0.7, 0); g.lineTo(r * 0.9, 0); g.stroke();
@@ -177,10 +178,10 @@ export function drawEnemyShape(g, type, r, col, elite, res = 1, frame = 0) {
       g.beginPath(); g.moveTo(lx * r * 0.6, ly * r * 0.5); g.lineTo((lx + sw) * r * 1.05, ly * r * 1.05); g.lineTo((lx + sw) * r * 1.2, ly * r * 1.25); g.stroke();
     }
     g.fillStyle = shade(g, -r, -r, r, r, '#4a3f2a', 0.55);
-    roundRect(g, -r * 0.85, -r * 0.62, r * 1.7, r * 1.24, r * 0.25); g.fill();
+    roundRect(g, -r * 0.85, -r * 0.62, r * 1.7, r * 1.24, r * 0.5); g.fill();
     g.strokeStyle = rgba(col, 0.9); g.lineWidth = lw * 0.8; g.stroke();
     g.fillStyle = shade(g, -r * 0.5, -r * 0.4, r * 0.5, r * 0.4, '#6a5a3a', 0.5);
-    roundRect(g, -r * 0.5, -r * 0.42, r, r * 0.84, r * 0.15); g.fill();
+    g.beginPath(); g.ellipse(0, 0, r * 0.5, r * 0.42, 0, 0, 7); g.fill();
     g.fillStyle = shade(g, 0, -r * 0.1, 0, r * 0.1, '#3a3f48'); for (const sy of [-0.25, 0.25]) g.fillRect(r * 0.4, sy * r - r * 0.07, r * 0.75, r * 0.14);
     neon(g, col, 18 * res); g.fillStyle = '#fff0c8'; g.beginPath(); g.arc(-r * 0.05, 0, r * 0.18, 0, 7); g.fill();
     g.fillStyle = col; for (const sx of [-0.6, 0.6]) { g.beginPath(); g.arc(sx * r, 0, r * 0.07, 0, 7); g.fill(); }
@@ -285,25 +286,43 @@ export function drawTowerBase(g, type, tier, res = 1) {
 }
 
 // Geschützköpfe (drehen sich, Blick nach +x)
+// Kapselförmiges Gehäuse mit weichem Glanz
 function metalBox(g, x, y, w, h, r, base = '#3a4250') {
-  g.fillStyle = shade(g, x, y, x + w, y + h, base, 0.55); roundRect(g, x, y, w, h, r); g.fill();
-  g.strokeStyle = 'rgba(0,0,0,0.55)'; g.lineWidth = 1; g.stroke();
-  g.strokeStyle = 'rgba(255,255,255,0.18)'; g.beginPath(); g.moveTo(x + r, y + 0.8); g.lineTo(x + w - r, y + 0.8); g.stroke();
+  const rr = Math.min(w, h) * 0.46;
+  const gr = g.createRadialGradient(x + w * 0.3, y + h * 0.25, Math.min(w, h) * 0.1, x + w / 2, y + h / 2, Math.max(w, h) * 0.75);
+  gr.addColorStop(0, mix(base, '#ffffff', 0.4)); gr.addColorStop(0.55, base); gr.addColorStop(1, mix(base, '#000000', 0.5));
+  g.fillStyle = gr; roundRect(g, x, y, w, h, rr); g.fill();
+  g.strokeStyle = 'rgba(0,0,0,0.28)'; g.lineWidth = 0.8; g.stroke();
+  g.strokeStyle = 'rgba(255,255,255,0.22)'; g.beginPath(); g.moveTo(x + rr, y + 1.2); g.quadraticCurveTo(x + w * 0.5, y + 0.2, x + w - rr, y + 1.2); g.stroke();
 }
+// Rohr mit runder Mündung
 function barrel(g, x, y, len, w, col, base = '#2c323c') {
   const gr = g.createLinearGradient(0, y - w / 2, 0, y + w / 2);
-  gr.addColorStop(0, mix(base, '#000000', 0.3)); gr.addColorStop(0.35, mix(base, '#ffffff', 0.35)); gr.addColorStop(1, mix(base, '#000000', 0.5));
-  g.fillStyle = gr; g.fillRect(x, y - w / 2, len, w);
-  g.strokeStyle = 'rgba(0,0,0,0.5)'; g.lineWidth = 0.8; g.strokeRect(x, y - w / 2, len, w);
-  g.fillStyle = mix(base, '#000000', 0.5); g.fillRect(x + len - 2.5, y - w / 2 - 0.6, 2.5, w + 1.2);
-  if (col) { g.fillStyle = rgba(col, 0.9); g.fillRect(x + len * 0.35, y - w / 2, 1.6, w); }
+  gr.addColorStop(0, mix(base, '#000000', 0.2)); gr.addColorStop(0.3, mix(base, '#ffffff', 0.4)); gr.addColorStop(1, mix(base, '#000000', 0.5));
+  g.fillStyle = gr; roundRect(g, x, y - w / 2, len, w, w * 0.48); g.fill();
+  g.fillStyle = mix(base, '#000000', 0.55); g.beginPath(); g.ellipse(x + len - w * 0.3, y, w * 0.32, w * 0.5, 0, 0, 7); g.fill();
+  g.fillStyle = mix(base, '#ffffff', 0.25); g.beginPath(); g.ellipse(x + len * 0.5, y, w * 0.18, w * 0.56, 0, 0, 7); g.fill();
+  if (col) { g.fillStyle = rgba(col, 0.9); g.beginPath(); g.ellipse(x + len * 0.3, y, 1, w * 0.52, 0, 0, 7); g.fill(); }
 }
+// Glaslinse mit Spiegelung
 function core(g, x, y, r, col, res) {
   neon(g, col, 10 * res);
   const gr = g.createRadialGradient(x - r * 0.3, y - r * 0.3, 0, x, y, r);
   gr.addColorStop(0, '#ffffff'); gr.addColorStop(0.4, mix(col, '#ffffff', 0.4)); gr.addColorStop(1, col);
   g.fillStyle = gr; g.beginPath(); g.arc(x, y, r, 0, 7); g.fill();
   g.shadowBlur = 0;
+  g.fillStyle = 'rgba(255,255,255,0.85)'; g.beginPath(); g.ellipse(x - r * 0.35, y - r * 0.4, r * 0.32, r * 0.18, -0.6, 0, 7); g.fill();
+}
+// abgerundetes Vieleck
+function rpoly(g, n, r, rot, k = 0.3) {
+  const V = []; for (let i = 0; i < n; i++) { const a = rot + i / n * Math.PI * 2; V.push([Math.cos(a) * r, Math.sin(a) * r]); }
+  g.beginPath();
+  for (let i = 0; i <= n; i++) {
+    const p = V[i % n], q = V[(i + 1) % n];
+    const m = [(p[0] + q[0]) / 2, (p[1] + q[1]) / 2];
+    if (i === 0) g.moveTo(m[0], m[1]); else g.quadraticCurveTo(p[0], p[1], m[0], m[1]);
+  }
+  g.closePath();
 }
 
 export function drawTowerHead(g, type, tier, res = 1) {
@@ -343,7 +362,7 @@ export function drawTowerHead(g, type, tier, res = 1) {
       break;
     }
     case 'emp': {
-      for (let i = 0; i < 4; i++) { g.save(); g.rotate(i * Math.PI / 2 + Math.PI / 4); metalBox(g, 6, -2.5, 13, 5, 2, '#3a4250'); g.fillStyle = col; g.fillRect(16, -1.5, 2.5, 3); g.restore(); }
+      for (let i = 0; i < 4; i++) { g.save(); g.rotate(i * Math.PI / 2 + Math.PI / 4); metalBox(g, 6, -2.5, 13, 5, 2, '#3a4250'); g.fillStyle = col; g.beginPath(); g.arc(17, 0, 1.8, 0, 7); g.fill(); g.restore(); }
       for (let i = 3; i >= 1; i--) { g.fillStyle = rshade(g, 0, 0, 4 + i * 4, i % 2 ? '#4a5466' : '#2c323c'); g.beginPath(); g.arc(0, 0, 4 + i * 4, 0, 7); g.fill(); g.strokeStyle = rgba(col, 0.5); g.lineWidth = 0.8; g.stroke(); }
       core(g, 0, 0, 4.5 + lvl * 0.5, col, res);
       break;
@@ -373,16 +392,16 @@ export function drawTowerHead(g, type, tier, res = 1) {
       break;
     }
     case 'drone': {
-      g.fillStyle = shade(g, -16, -16, 16, 16, '#3d4656'); poly(g, 6, 17, 0); g.fill();
-      g.strokeStyle = 'rgba(0,0,0,0.5)'; g.lineWidth = 1; g.stroke();
-      g.fillStyle = '#14171c'; poly(g, 6, 11, 0); g.fill();
-      g.fillStyle = shade(g, -10, -9, 0, 9, '#4a5466'); g.fillRect(-9.5, -8, 9, 16); g.fillStyle = shade(g, 0, -9, 10, 9, '#4a5466'); g.fillRect(0.5, -8, 9, 16);
+      g.fillStyle = rshade(g, 0, 0, 18, '#3d4656'); rpoly(g, 6, 18, 0); g.fill();
+      g.strokeStyle = 'rgba(0,0,0,0.3)'; g.lineWidth = 1; g.stroke();
+      g.fillStyle = '#14171c'; rpoly(g, 6, 11.5, 0); g.fill();
+      g.fillStyle = shade(g, -10, -9, 0, 9, '#4a5466'); roundRect(g, -9.5, -8, 9, 16, 4); g.fill(); g.fillStyle = shade(g, 0, -9, 10, 9, '#4a5466'); roundRect(g, 0.5, -8, 9, 16, 4); g.fill();
       g.fillStyle = '#c9a227'; g.fillRect(-0.5, -8, 1, 16);
       for (let i = 0; i < 6; i++) { const a = i * Math.PI / 3; core(g, Math.cos(a) * 14, Math.sin(a) * 14, 1.3, col, res); }
       break;
     }
     case 'shield': {
-      for (let i = 0; i < 4; i++) { g.save(); g.rotate(i * Math.PI / 2); g.fillStyle = shade(g, 6, -4, 16, 4, '#465062'); g.beginPath(); g.moveTo(6, -5); g.lineTo(16, -2); g.lineTo(16, 2); g.lineTo(6, 5); g.closePath(); g.fill(); g.restore(); }
+      for (let i = 0; i < 4; i++) { g.save(); g.rotate(i * Math.PI / 2); g.fillStyle = shade(g, 6, -4, 16, 4, '#465062'); g.beginPath(); g.ellipse(11.5, 0, 6, 3.6, 0, 0, 7); g.fill(); g.restore(); }
       g.fillStyle = rshade(g, 0, 0, 10, '#3d4555'); g.beginPath(); g.arc(0, 0, 10, 0, 7); g.fill();
       neon(g, col, 12 * res);
       const gr = g.createLinearGradient(-6, -10, 6, 10); gr.addColorStop(0, '#ffffff'); gr.addColorStop(0.5, col); gr.addColorStop(1, mix(col, '#000000', 0.4));
@@ -439,46 +458,99 @@ export function enemyIcon(type, elite = false) {
 
 // ---------------------------------------------------------------- Aufrechte Gebäude (leichte Seitenansicht)
 
-function footprint(shape, R) {
-  const P = [];
-  const ring = (n, rot, rr = R) => { for (let i = 0; i < n; i++) { const a = rot + i / n * Math.PI * 2; P.push([Math.cos(a) * rr, Math.sin(a) * rr]); } };
-  if (shape === 'hex') ring(6, 0);
-  else if (shape === 'oct') ring(8, Math.PI / 8);
-  else if (shape === 'diamond') ring(4, 0);
-  else if (shape === 'square') ring(4, Math.PI / 4, R * 1.2);
-  else if (shape === 'rect') { P.push([-R * 1.15, -R * 0.62], [R * 1.15, -R * 0.62], [R * 1.15, R * 0.62], [-R * 1.15, R * 0.62]); }
-  return P;
-}
-// Prisma mit sichtbaren Vorderwänden und Deckfläche, Fuß bei (0,0)
-function prism(g, pts, H, wall, top, accent) {
-  const n = pts.length;
-  for (let i = 0; i < n; i++) {
-    const a = pts[i], b = pts[(i + 1) % n];
-    const nx = b[1] - a[1], ny = -(b[0] - a[0]);       // Außennormale (Punkte im Uhrzeigersinn)
-    if (ny <= 0.01) continue;                          // Rückseite
-    const lit = 0.5 - nx / (Math.hypot(nx, ny) || 1) * 0.35;
-    g.fillStyle = mix(wall, lit > 0.5 ? '#ffffff' : '#000000', Math.abs(lit - 0.5) * 0.9);
-    g.beginPath(); g.moveTo(a[0], a[1] * TILT); g.lineTo(b[0], b[1] * TILT); g.lineTo(b[0], b[1] * TILT - H); g.lineTo(a[0], a[1] * TILT - H); g.closePath(); g.fill();
-    g.strokeStyle = 'rgba(0,0,0,0.35)'; g.lineWidth = 0.8; g.stroke();
-    if (accent) { g.strokeStyle = rgba(accent, 0.9); g.lineWidth = 1.4; g.beginPath(); g.moveTo(a[0], a[1] * TILT - H * 0.62); g.lineTo(b[0], b[1] * TILT - H * 0.62); g.stroke(); }
+// Abgerundeter Grundriss: Polygon mit weichen Ecken (rc = Eckradius-Anteil)
+function roundedFootprint(shape, R) {
+  if (shape === 'round' || shape === 'tiers' || shape === 'mast') { const P = []; for (let i = 0; i < 40; i++) { const a = i / 40 * Math.PI * 2; P.push([Math.cos(a) * R, Math.sin(a) * R]); } return P; }
+  let V;
+  const ring = (n, rot, rr = R) => { const P = []; for (let i = 0; i < n; i++) { const a = rot + i / n * Math.PI * 2; P.push([Math.cos(a) * rr, Math.sin(a) * rr]); } return P; };
+  if (shape === 'hex') V = ring(6, 0, R * 1.05);
+  else if (shape === 'oct') V = ring(8, Math.PI / 8, R * 1.03);
+  else if (shape === 'diamond') V = ring(4, 0, R * 1.12);
+  else if (shape === 'square') V = ring(4, Math.PI / 4, R * 1.25);
+  else V = [[-R * 1.15, -R * 0.62], [R * 1.15, -R * 0.62], [R * 1.15, R * 0.62], [-R * 1.15, R * 0.62]];
+  const rc = shape === 'rect' ? R * 0.5 : shape === 'diamond' ? R * 0.45 : R * 0.42;
+  const out = [];
+  for (let i = 0; i < V.length; i++) {
+    const p = V[i], a = V[(i - 1 + V.length) % V.length], b = V[(i + 1) % V.length];
+    const la = Math.hypot(a[0] - p[0], a[1] - p[1]), lb = Math.hypot(b[0] - p[0], b[1] - p[1]);
+    const r = Math.min(rc, la * 0.48, lb * 0.48);
+    const p1 = [p[0] + (a[0] - p[0]) / la * r, p[1] + (a[1] - p[1]) / la * r], p2 = [p[0] + (b[0] - p[0]) / lb * r, p[1] + (b[1] - p[1]) / lb * r];
+    for (let k = 0; k <= 7; k++) { const t = k / 7, u = 1 - t; out.push([u * u * p1[0] + 2 * u * t * p[0] + t * t * p2[0], u * u * p1[1] + 2 * u * t * p[1] + t * t * p2[1]]); }
   }
-  const gr = g.createLinearGradient(-30, -H - 30, 30, -H + 20);
-  gr.addColorStop(0, mix(top, '#ffffff', 0.25)); gr.addColorStop(1, mix(top, '#000000', 0.35));
-  g.fillStyle = gr; g.beginPath(); pts.forEach(([x, y], i) => i ? g.lineTo(x, y * TILT - H) : g.moveTo(x, y * TILT - H)); g.closePath(); g.fill();
-  g.strokeStyle = 'rgba(255,255,255,0.18)'; g.lineWidth = 1; g.stroke();
+  return out;
 }
-function cylinder(g, R, H, wall, top, accent, y0 = 0) {
-  const ry = R * TILT;
-  const gr = g.createLinearGradient(-R, 0, R, 0);
-  gr.addColorStop(0, mix(wall, '#ffffff', 0.28)); gr.addColorStop(0.45, wall); gr.addColorStop(1, mix(wall, '#000000', 0.55));
-  g.fillStyle = gr;
-  g.beginPath(); g.moveTo(-R, y0 - H); g.lineTo(-R, y0); g.ellipse(0, y0, R, ry, 0, Math.PI, 0, true); g.lineTo(R, y0 - H); g.closePath(); g.fill();
-  if (accent) { g.strokeStyle = rgba(accent, 0.9); g.lineWidth = 1.5; g.beginPath(); g.ellipse(0, y0 - H * 0.55, R, ry, 0, 0, Math.PI); g.stroke(); }
-  const tg = g.createLinearGradient(-R, y0 - H - ry, R, y0 - H + ry);
-  tg.addColorStop(0, mix(top, '#ffffff', 0.25)); tg.addColorStop(1, mix(top, '#000000', 0.35));
-  g.fillStyle = tg; g.beginPath(); g.ellipse(0, y0 - H, R, ry, 0, 0, 7); g.fill();
-  g.strokeStyle = 'rgba(255,255,255,0.18)'; g.lineWidth = 1; g.stroke();
+// vordere Kette des Grundrisses (von links nach rechts über die dem Betrachter zugewandte Seite)
+function frontChain(pts) {
+  let li = 0, ri = 0;
+  pts.forEach((p, i) => { if (p[0] < pts[li][0]) li = i; if (p[0] > pts[ri][0]) ri = i; });
+  const n = pts.length, a = [], b = [];
+  for (let i = li; ; i = (i + 1) % n) { a.push(pts[i]); if (i === ri) break; }
+  for (let i = li; ; i = (i - 1 + n) % n) { b.push(pts[i]); if (i === ri) break; }
+  const avg = (c) => c.reduce((s, p) => s + p[1], 0) / c.length;
+  return avg(a) > avg(b) ? a : b;
 }
+// Abgerundeter Körper: weiche Wand, Fußwulst, Lichtkante, Deckfläche mit Kuppel
+function roundBody(g, pts, H, wall, top, accent, opts = {}) {
+  const y0 = opts.y0 || 0, dome = opts.dome ?? 0.35;
+  const xs = pts.map(p => p[0]), minX = Math.min(...xs), maxX = Math.max(...xs), W = maxX - minX;
+  const chain = frontChain(pts);
+  // Fußwulst
+  if (!opts.noSkirt) {
+    const sk = pts.map(([x, y]) => [x * 1.1, y * 1.1]), sc = frontChain(sk);
+    g.fillStyle = mix(wall, '#000000', 0.35);
+    g.beginPath(); sc.forEach(([x, y], i) => i ? g.lineTo(x, y * TILT + y0) : g.moveTo(x, y * TILT + y0));
+    for (let i = sc.length - 1; i >= 0; i--) g.lineTo(sc[i][0], sc[i][1] * TILT + y0 - 4);
+    g.closePath(); g.fill();
+    g.beginPath(); sk.forEach(([x, y], i) => i ? g.lineTo(x, y * TILT + y0 - 4) : g.moveTo(x, y * TILT + y0 - 4)); g.closePath();
+    g.fillStyle = mix(wall, '#ffffff', 0.08); g.fill();
+  }
+  // Wand
+  const wallPath = () => {
+    g.beginPath();
+    chain.forEach(([x, y], i) => i ? g.lineTo(x, y * TILT + y0) : g.moveTo(x, y * TILT + y0));
+    for (let i = chain.length - 1; i >= 0; i--) g.lineTo(chain[i][0], chain[i][1] * TILT + y0 - H);
+    g.closePath();
+  };
+  const gr = g.createLinearGradient(minX, 0, maxX, 0);
+  gr.addColorStop(0, mix(wall, '#ffffff', 0.18)); gr.addColorStop(0.22, mix(wall, '#ffffff', 0.32)); gr.addColorStop(0.5, wall); gr.addColorStop(0.85, mix(wall, '#000000', 0.45)); gr.addColorStop(1, mix(wall, '#000000', 0.3));
+  wallPath(); g.fillStyle = gr; g.fill();
+  g.save(); wallPath(); g.clip();
+  // Bodenschatten (Kontakt) und Glanzstreifen
+  const ao = g.createLinearGradient(0, y0 - Math.min(14, H), 0, y0 + 6);
+  ao.addColorStop(0, 'rgba(0,0,0,0)'); ao.addColorStop(1, 'rgba(0,0,0,0.42)');
+  g.fillStyle = ao; g.fillRect(minX - 2, y0 - H - 20, W + 4, H + 40);
+  const sx = minX + W * 0.24;
+  const sp = g.createLinearGradient(sx - W * 0.08, 0, sx + W * 0.08, 0);
+  sp.addColorStop(0, 'rgba(255,255,255,0)'); sp.addColorStop(0.5, 'rgba(255,255,255,0.16)'); sp.addColorStop(1, 'rgba(255,255,255,0)');
+  g.fillStyle = sp; g.fillRect(minX, y0 - H - 20, W, H + 40);
+  // Leuchtband entlang der Rundung
+  if (accent) {
+    for (const hf of opts.bands || [0.62]) {
+      g.strokeStyle = rgba(accent, 0.9); g.lineWidth = 1.6; g.shadowColor = accent; g.shadowBlur = 4;
+      g.beginPath(); chain.forEach(([x, y], i) => i ? g.lineTo(x, y * TILT + y0 - H * hf) : g.moveTo(x, y * TILT + y0 - H * hf)); g.stroke();
+      g.shadowBlur = 0;
+    }
+  }
+  g.restore();
+  if (opts.noTop) return;
+  // Deckfläche mit hellem Rand (Fase) und gewölbter Mitte
+  const topPath = (k, lift = 0) => { g.beginPath(); pts.forEach(([x, y], i) => { const X = x * k, Y = y * k * TILT + y0 - H - lift; i ? g.lineTo(X, Y) : g.moveTo(X, Y); }); g.closePath(); };
+  topPath(1); g.fillStyle = mix(top, '#ffffff', 0.32); g.fill();
+  topPath(0.86, 1.2);
+  const cx = (minX + maxX) / 2, tg = g.createRadialGradient(cx - W * 0.18, y0 - H - W * 0.18 * TILT - W * dome * 0.3, W * 0.04, cx, y0 - H, W * 0.6);
+  tg.addColorStop(0, mix(top, '#ffffff', 0.45)); tg.addColorStop(0.55, top); tg.addColorStop(1, mix(top, '#000000', 0.35));
+  g.fillStyle = tg; g.fill();
+  if (dome > 0) {
+    const dr = W * 0.32, dh = W * dome * 0.35;
+    const dg = g.createRadialGradient(cx - dr * 0.35, y0 - H - dh * 0.9, dr * 0.05, cx, y0 - H - dh * 0.3, dr * 1.1);
+    dg.addColorStop(0, mix(top, '#ffffff', 0.55)); dg.addColorStop(0.6, mix(top, '#ffffff', 0.08)); dg.addColorStop(1, mix(top, '#000000', 0.3));
+    g.fillStyle = dg; g.beginPath(); g.ellipse(cx, y0 - H - 1, dr, dr * TILT, 0, 0, Math.PI); g.ellipse(cx, y0 - H - 1, dr, dh + dr * TILT * 0.6, 0, 0, Math.PI, true); g.fill();
+  }
+  // weiche Lichtkante oben links
+  g.strokeStyle = 'rgba(255,255,255,0.28)'; g.lineWidth = 1;
+  g.beginPath(); pts.forEach(([x, y], i) => { if (x > cx + W * 0.1 || y > 0) return; const X = x, Y = y * TILT + y0 - H; g.lineTo(X, Y); }); g.stroke();
+}
+function cylinder(g, R, H, wall, top, accent, y0 = 0, opts = {}) { roundBody(g, roundedFootprint('round', R), H, wall, top, accent, { y0, ...opts }); }
 export function headScale(type) { const L = TOWER_LOOK[type]; return L.shape === 'mast' ? 0.62 : Math.max(0.56, Math.min(0.85, L.R / 19)); }
 export function towerDims(type, tier) {
   const L = TOWER_LOOK[type], lvl = tier === '1' ? 1 : tier === '2' ? 2 : 3;
@@ -499,46 +571,50 @@ export function towerBodySprite(type, tier, res) {
   // Schatten nach hinten rechts
   g.fillStyle = 'rgba(0,0,0,0.32)';
   g.beginPath(); g.ellipse(R * 0.4 + H * 0.28, -R * 0.15 * TILT, R + H * 0.24, R * TILT * 0.75, -0.12, 0, 7); g.fill();
-  // Bodenplatte
-  const pr = R + 4;
-  g.fillStyle = 'rgba(0,0,0,0.3)'; g.beginPath(); g.ellipse(2, 3, pr, pr * TILT, 0, 0, 7); g.fill();
-  g.fillStyle = shade(g, -pr, -pr * TILT, pr, pr * TILT, '#3a414c', 0.5);
-  poly2(g, 8, pr, Math.PI / 8); g.fill();
-  g.strokeStyle = 'rgba(255,255,255,0.1)'; g.lineWidth = 1; g.stroke();
-  g.fillStyle = '#c9a227'; for (const [x, y] of [[-pr * 0.7, pr * 0.55], [pr * 0.7, pr * 0.55]]) { g.fillRect(x - 3, y * TILT - 1, 6, 2); }
+  // runde Bodenplatte mit Fase
+  const pr = R + 5;
+  g.fillStyle = 'rgba(0,0,0,0.28)'; g.beginPath(); g.ellipse(2, 3, pr + 1, (pr + 1) * TILT, 0, 0, 7); g.fill();
+  const pg = g.createRadialGradient(-pr * 0.3, -pr * 0.4 * TILT, 2, 0, 0, pr);
+  pg.addColorStop(0, '#4a525e'); pg.addColorStop(1, '#262b33');
+  g.fillStyle = pg; g.beginPath(); g.ellipse(0, 0, pr, pr * TILT, 0, 0, 7); g.fill();
+  g.strokeStyle = 'rgba(255,255,255,0.1)'; g.lineWidth = 1; g.beginPath(); g.ellipse(0, -0.5, pr - 1.5, (pr - 1.5) * TILT, 0, Math.PI * 1.05, Math.PI * 1.95); g.stroke();
+  g.fillStyle = rgba('#c9a227', 0.8); for (const a of [2.4, 0.74]) { g.beginPath(); g.ellipse(Math.cos(a) * pr * 0.82, Math.sin(a) * pr * 0.82 * TILT, 2.2, 1.4, 0, 0, 7); g.fill(); }
   const wall = L.wall, top = mix(L.wall, '#6a7688', 0.55);
-  if (L.shape === 'round') {
-    cylinder(g, R, H, wall, top, col);
-    if (lvl >= 2) for (let i = -1; i <= 1; i += 2) { g.fillStyle = shade(g, i * R - 3, -H, i * R + 3, 0, '#59647a'); g.fillRect(i * R * 0.98 - 2.5, -H * 0.85, 5, H * 0.7); }
-  } else if (L.shape === 'tiers') {
+  if (L.shape === 'tiers') {
     const h1 = H * 0.45, h2 = H * 0.32, h3 = H * 0.23;
-    cylinder(g, R, h1, wall, top, col);
-    cylinder(g, R * 0.78, h2, wall, top, null, -h1);
-    cylinder(g, R * 0.56, h3, wall, top, col, -h1 - h2);
+    cylinder(g, R, h1, wall, top, col, 0, { dome: 0 });
+    cylinder(g, R * 0.78, h2, wall, top, null, -h1, { dome: 0, noSkirt: true });
+    cylinder(g, R * 0.56, h3, wall, top, col, -h1 - h2, { dome: 0.5, noSkirt: true });
   } else if (L.shape === 'mast') {
-    cylinder(g, R, 8, wall, top, col);
-    const pw = 3 + lvl;
-    const gr = g.createLinearGradient(-pw, 0, pw, 0); gr.addColorStop(0, '#7d889a'); gr.addColorStop(1, '#2a3038');
-    g.fillStyle = gr; g.fillRect(-pw, -H, pw * 2, H - 6);
-    g.strokeStyle = 'rgba(0,0,0,0.4)'; g.lineWidth = 1;
-    for (let y = -H + 6; y < -10; y += 7) { g.beginPath(); g.moveTo(-pw - 3, y); g.lineTo(pw + 3, y + 5); g.moveTo(pw + 3, y); g.lineTo(-pw - 3, y + 5); g.stroke(); }
-    cylinder(g, R * 0.95, 3, wall, top, col, -H + 3);
-  } else {
-    const pts = footprint(L.shape, R);
-    prism(g, pts, H, wall, top, col);
-    if (lvl >= 2) { // Panzerplatten an der Front
-      g.fillStyle = shade(g, -R * 0.4, -H, R * 0.4, 0, '#5a6478');
-      g.fillRect(-R * 0.35, R * 0.55 * TILT - H * 0.8, R * 0.7, H * 0.35);
+    cylinder(g, R, 8, wall, top, col, 0, { dome: 0 });
+    // schlanker, sich verjüngender Mast mit runden Ringen
+    const pw0 = 3.6 + lvl * 0.6, pw1 = 2.2 + lvl * 0.4;
+    const gr = g.createLinearGradient(-pw0, 0, pw0, 0); gr.addColorStop(0, '#8792a4'); gr.addColorStop(0.35, '#a7b1c2'); gr.addColorStop(1, '#2a3038');
+    g.fillStyle = gr; g.beginPath(); g.moveTo(-pw0, -8); g.lineTo(-pw1, -H + 4); g.lineTo(pw1, -H + 4); g.lineTo(pw0, -8); g.closePath(); g.fill();
+    for (let y = -16; y > -H + 8; y -= 10) {
+      const k = (y + 8) / (-H + 12), w2 = pw0 + (pw1 - pw0) * k + 1.4;
+      g.fillStyle = '#5b6575'; g.beginPath(); g.ellipse(0, y, w2, w2 * TILT * 0.8, 0, 0, 7); g.fill();
+      g.fillStyle = rgba(col, 0.7); g.beginPath(); g.ellipse(0, y - 0.5, w2 * 0.6, w2 * 0.35 * TILT, 0, Math.PI * 0.1, Math.PI * 0.9); g.fill();
     }
+    cylinder(g, R * 0.95, 3, wall, top, col, -H + 3, { dome: 0, noSkirt: true });
+  } else {
+    const pts = roundedFootprint(L.shape, R);
+    roundBody(g, pts, H, wall, top, col, { dome: L.shape === 'oct' ? 0.2 : 0.3, bands: lvl >= 3 ? [0.38, 0.7] : [0.62] });
+  }
+  if (lvl >= 2 && L.shape !== 'mast' && L.shape !== 'tiers') {
+    // gewölbte Panzerplatte an der Front
+    const pw = R * 0.62, py = R * 0.62 * TILT - H * 0.45;
+    const ag = g.createLinearGradient(-pw, 0, pw, 0); ag.addColorStop(0, '#7a8598'); ag.addColorStop(1, '#3a4252');
+    g.fillStyle = ag; roundRect(g, -pw / 2, py - H * 0.18, pw, H * 0.3, Math.min(5, H * 0.12)); g.fill();
   }
   // Fenster / Lichtschlitze
   g.fillStyle = rgba(col, 0.85);
   const fy = L.shape === 'mast' ? -4 : -H * 0.3;
-  for (let i = -1; i <= 1; i++) g.fillRect(i * R * 0.35 - 1.5, R * 0.62 * TILT + fy, 3, 2);
+  for (let i = -1; i <= 1; i++) { g.beginPath(); g.ellipse(i * R * 0.36, R * 0.7 * TILT + fy, 1.8, 1.2, 0, 0, 7); g.fill(); }
   // Stufe 3: Antennen
   if (lvl >= 3) {
-    g.strokeStyle = '#9aa5b6'; g.lineWidth = 1.2;
-    for (const sx of [-R * 0.7, R * 0.7]) { g.beginPath(); g.moveTo(sx, -H - R * 0.3 * TILT); g.lineTo(sx, -H - R * 0.3 * TILT - 12); g.stroke(); }
+    g.strokeStyle = '#9aa5b6'; g.lineWidth = 1.2; g.lineCap = 'round';
+    for (const sx of [-R * 0.7, R * 0.7]) { g.beginPath(); g.moveTo(sx, -H - R * 0.3 * TILT); g.lineTo(sx, -H - R * 0.3 * TILT - 12); g.stroke(); g.fillStyle = col; g.beginPath(); g.arc(sx, -H - R * 0.3 * TILT - 12, 1.6, 0, 7); g.fill(); }
   }
   s = { c, w, h, ax, ay, top: H };
   spriteCache.set(key, s);
@@ -560,7 +636,7 @@ export function obstacleSprite(o, B, res) {
     // flacher, rundlicher Felsbrocken: niedrige Flanke + gewölbte Kuppe
     const n = 11, pts = [];
     for (let i = 0; i < n; i++) { const a = o.rot + i / n * Math.PI * 2, rr = r * (0.8 + rng() * 0.22); pts.push([Math.cos(a) * rr, Math.sin(a) * rr]); }
-    prism(g, pts, r * 0.22, mix(B.rock, '#000000', 0.15), B.rock, null);
+    roundBody(g, pts, r * 0.22, mix(B.rock, '#000000', 0.15), B.rock, null, { noSkirt: true, dome: 0, noTop: true });
     // Kuppe: hintere Punkte stärker angehoben, Rand weich gerundet
     const cap = pts.map(([x, y]) => [x * 0.94, y * 0.94 * TILT - r * 0.22 - r * 0.32 * (1 - (y / r + 1) / 2) - r * 0.1]);
     g.beginPath();

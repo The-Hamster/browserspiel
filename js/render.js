@@ -12,6 +12,8 @@ const MOOD = {
   eis:       { dark: 0.0,  ambient: '#000000', tint: '#bfe6ff', tintA: 0.05, fog: 0.12 },
   kristall:  { dark: 0.55, ambient: '#0c0626', tint: '#6a4aff', tintA: 0.05, fog: 0.08 },
   dschungel: { dark: 0.42, ambient: '#03140a', tint: '#4aff7a', tintA: 0.04, fog: 0.12 },
+  asche:     { dark: 0.45, ambient: '#1c0704', tint: '#ff6a3a', tintA: 0.04, fog: 0.08 },
+  sumpf:     { dark: 0.35, ambient: '#021412', tint: '#3affd0', tintA: 0.04, fog: 0.22 },
 };
 
 export class Renderer {
@@ -38,8 +40,11 @@ export class Renderer {
     this.canvas.style.width = w + 'px'; this.canvas.style.height = h + 'px';
     this.playRect = rect || { x: 0, y: 0, w, h };
     const r = this.playRect;
-    this.HEAD = 34; // Platz über der Karte für hohe Gebäude
-    this.scale0 = Math.min(r.w / WORLD_W, r.h / (WORLD_H * TILT + this.HEAD));
+    // Spiel: Karte füllt den ganzen Bildschirm (Rest per Ziehen erreichbar); Editor: ganze Karte sichtbar
+    this.HEAD = this.fit === 'contain' ? 30 : 0;
+    this.scale0 = this.fit === 'contain'
+      ? Math.min(r.w / WORLD_W, r.h / (WORLD_H * TILT + this.HEAD))
+      : Math.max(r.w / WORLD_W, r.h / (WORLD_H * TILT));
     this.applyView();
     const cap = this.quality === 'niedrig' ? 1.5 : this.quality === 'mittel' ? 2 : 3;
     const res = Math.min(cap, Math.max(1, Math.ceil(this.scale0 * dpr * 2) / 2));
@@ -64,11 +69,11 @@ export class Renderer {
     this.zoom = clamp(this.zoom, 1, 2.6);
     this.scale = this.scale0 * this.zoom;
     const vw = r.w / this.scale, vh = (r.h - this.HEAD * this.scale0) / (this.scale * TILT);
-    if (this.zoom <= 1.001) { this.cx = WORLD_W / 2; this.cy = WORLD_H / 2; }
-    else {
-      this.cx = vw >= WORLD_W ? WORLD_W / 2 : clamp(this.cx, vw / 2, WORLD_W - vw / 2);
-      this.cy = vh >= WORLD_H ? WORLD_H / 2 : clamp(this.cy, vh / 2, WORLD_H - vh / 2);
-    }
+    // Rand unter den Leisten: Karte lässt sich so weit ziehen, dass nichts verdeckt bleibt
+    const P = this.fit === 'contain' ? { t: 0, b: 0, l: 0, r: 0 } : (this.pad || { t: 0, b: 0, l: 0, r: 0 });
+    const pl = P.l / this.scale, pr = P.r / this.scale, pt = P.t / (this.scale * TILT), pb = P.b / (this.scale * TILT);
+    this.cx = vw >= WORLD_W + pl + pr ? WORLD_W / 2 + (pr - pl) / 2 : clamp(this.cx, vw / 2 - pl, WORLD_W - vw / 2 + pr);
+    this.cy = vh >= WORLD_H + pt + pb ? WORLD_H / 2 + (pb - pt) / 2 : clamp(this.cy, vh / 2 - pt, WORLD_H - vh / 2 + pb);
     this.ox = r.x + r.w / 2 - this.cx * this.scale;
     this.oy = r.y + this.HEAD * this.scale0 + (r.h - this.HEAD * this.scale0) / 2 - this.cy * TILT * this.scale;
   }
@@ -82,8 +87,9 @@ export class Renderer {
     this.cy = w.y - (sy - (r.y + this.HEAD * this.scale0 + (r.h - this.HEAD * this.scale0) / 2)) / (this.scale * TILT);
     this.applyView();
   }
+  canPan() { return this.fit !== 'contain'; }
   panBy(dx, dy) { this.cx -= dx / this.scale; this.cy -= dy / (this.scale * TILT); this.applyView(); }
-  resetView() { this.zoom = 1; this.applyView(); }
+  resetView() { this.zoom = 1; this.cx = WORLD_W / 2; this.cy = WORLD_H / 2; this.applyView(); }
   screenToWorld(x, y) { return { x: (x - this.ox) / this.scale, y: (y - this.oy) / (this.scale * TILT) }; }
   worldToScreen(x, y, z = 0) { return { x: this.ox + x * this.scale, y: this.oy + y * TILT * this.scale - z * this.scale }; }
 
@@ -1048,6 +1054,8 @@ export class Renderer {
       eis: { col: ci('#ffffff'), vx: -14, vz: -26, size: 4, add: false },
       kristall: { col: ci('#d18cff'), vx: 4, vz: 6, size: 5, add: true },
       dschungel: { col: ci('#c4ff8a'), vx: 6, vz: 4, size: 5, add: true },
+      asche: { col: ci('#ff7a3a'), vx: 12, vz: 30, size: 4, add: true },
+      sumpf: { col: ci('#7affd0'), vx: 3, vz: 3, size: 5, add: true },
     }[kind] || { col: 0, vx: 0, vz: 0, size: 3, add: true };
     g.globalCompositeOperation = cfg.add ? 'lighter' : 'source-over';
     const spr = glow(cfg.col);

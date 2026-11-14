@@ -50,11 +50,18 @@ export function smoothPoints(wps, radius = 1.35) {
 
 // alte Karten (Feldmitte = x + 0.5) auf neues Format umrechnen
 export function normalizeDef(def) {
-  if (def.v === 2 || !def.custom && MAPS_IDS.has(def.id)) return def;
-  const sh = (p) => [p[0] + 0.5, p[1] + 0.5];
-  return { ...def, v: 2, biome: def.biome || 'kristall', paths: def.paths.map(pp => pp.map(sh)), base: sh(def.base), water: [], obstacles: [] };
+  if (def.v === 3 || (!def.custom && MAPS_IDS.has(def.id) && def.v !== 2)) return def;
+  // ältere Karten (18 × 10) mittig auf die größere Fläche setzen
+  const dx = 1, dy = 2;
+  const half = def.v === 2 ? 0 : 0.5;
+  const sh = (p) => [p[0] + half + dx, p[1] + half + dy];
+  return {
+    ...def, v: 3, biome: def.biome || 'kristall', paths: def.paths.map(pp => pp.map(sh)), base: sh(def.base),
+    water: (def.water || []).map(w => ({ ...w, pts: w.pts.map(sh) })), obstacles: (def.obstacles || []).map(o => [o[0] + half + dx, o[1] + half + dy, o[2], o[3]]),
+    editorWps: def.editorWps ? def.editorWps.map(sh) : undefined,
+  };
 }
-const MAPS_IDS = new Set(['krater', 'zwilling', 'spirale', 'gabel']);
+const MAPS_IDS = new Set(['krater', 'zwilling', 'spirale', 'gabel', 'serpentine', 'sumpf']);
 
 export function buildMap(rawDef) {
   const def = normalizeDef(rawDef);
@@ -100,7 +107,7 @@ export function buildMap(rawDef) {
   };
   if (!def.noDeco) {
     // große Pflanzen/Felsen weit weg vom Weg (blockieren; nicht auf eigenen Karten)
-    for (let tries = 0, n = 0; !def.custom && tries < 260 && n < 9; tries++) {
+    for (let tries = 0, n = 0; !def.custom && tries < 400 && n < 13; tries++) {
       const x = 30 + rng() * (WORLD_W - 60), y = 30 + rng() * (WORLD_H - 60), r = 18 + rng() * 16;
       if (!freeAt(x, y, r + 6) || nearPath(x, y, 120)) continue;
       const kind = rng() < 0.55 ? 'tree' : rng() < 0.5 ? 'rock' : 'crystal';
@@ -108,7 +115,7 @@ export function buildMap(rawDef) {
       stamp(x, y, r, 2); n++;
     }
     // kleine Steine, Gras, Splitter (blockieren nicht)
-    for (let tries = 0, n = 0; tries < 900 && n < 140; tries++) {
+    for (let tries = 0, n = 0; tries < 1400 && n < 210; tries++) {
       const x = rng() * WORLD_W, y = rng() * WORLD_H, r = 2 + rng() * 6;
       const gx = Math.floor(x / CELL), gy = Math.floor(y / CELL);
       if (grid[gy * GW + gx]) continue;
@@ -117,9 +124,14 @@ export function buildMap(rawDef) {
       n++;
     }
   }
-  const fly = smooth.map(p => {
-    const s0 = p[0];
-    return makePath([{ x: clamp(s0.x, -30, WORLD_W + 30), y: clamp(s0.y, -30, WORLD_H + 30) }, basePos]);
+  // Flieger folgen grob dem Weg, nehmen aber Abkürzungen (jeder dritte Wegpunkt)
+  const fly = (def.paths || []).filter(p => p.length >= 2).map(wp => {
+    const pts = [wp[0]];
+    for (let i = 3; i < wp.length - 1; i += 3) pts.push(wp[i]);
+    pts.push(def.base);
+    const sm = smoothPoints(pts, 2.4);
+    sm[0] = { x: clamp(sm[0].x, -30, WORLD_W + 30), y: clamp(sm[0].y, -30, WORLD_H + 30) };
+    return makePath(sm);
   });
   const theme = { ground: biome.ground, ground2: biome.ground2, accent: biome.accent, lane: biome.lane };
   return { id: def.id, name: def.name, def, biome, theme, paths, flyPaths: fly, smooth, water, obstacles, deco, base: def.base, basePos, grid };
@@ -170,6 +182,9 @@ export class Game {
     this.res = new Set(this.rules.research ? (opts.research || []) : []);
     this.mapDef = opts.mapDef;
     this.map = buildMap(opts.mapDef);
+    // lange Wege: mehr Zeit zwischen den Wellen, damit sich nicht zu viele Wellen stauen
+    const longest = Math.max(...this.map.paths.map(p => p.total)) / TILE;
+    this.rules.countdown = Math.round(this.rules.countdown * clamp(longest / 40, 1, 1.9));
     this.seed = this.daily ? 'daily-' + this.daily.key : this.mission ? 'mission-' + this.mission.id : this.mapDef.id + '-' + this.mode;
     this.time = 0;
     this.state = 'playing';
